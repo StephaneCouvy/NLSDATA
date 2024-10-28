@@ -263,13 +263,13 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
                         # TODO: Note : Voir si je peux pas check juste chaques variables du dict, voir si elle contient plus de 2 index, si l'un des deux index est link je fais la transfo, au lieu de checker tout les patterns
                         # Data None check
-                        if data:
+                        if not data.empty:
                             data = self.transform_columns(data)
                         else:
                             return False
 
                         # Data None check
-                        if data:
+                        if not data.empty:
                             set_columns_type_dict(data)
                         else:
                             return False
@@ -320,7 +320,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
             # Manage other exceptions
             else:
-                vError = "Error: Fetching table {}".format(self.get_bronze_source_properties().table)
+                vError = "Error: Fetching table {}. Exception: {}".format(self.get_bronze_source_properties().table, str(err))
 
             # On verbose mode, prepare log messages
             if verbose:
