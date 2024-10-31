@@ -88,6 +88,8 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
         self.response = requests.get(self.url + self.endpoint, auth=self.auth, params=self.params)
         self.response_data = self.response.json()
 
+        print(self.get_bronze_source_properties().name)
+
         if self.response.status_code != 200:
             vError = "ERROR connecting to : {}".format(self.get_bronze_source_properties().name)
             raise Exception(vError)
@@ -145,7 +147,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
             return []
 
     def set_columns_to_transform(self, df : DataFrame) -> None:
-        """Get columns from df where date format is str(yyy-MM-DD HH:MM:SS)"""
+        """Get columns from df where date format is str(yyyy-MM-DD HH:MM:SS)"""
 
         for col in df.columns:
             first_non_null_value = next((value for value in df[col] if pd.notnull(value)), None)
@@ -191,20 +193,32 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
     def fetch_value_from_link(self, link : str):
         """Fetch value from link method"""
 
-        try:
-            request_link = requests.get(link, auth=self.auth, params=self.params)
-            data_link = request_link.json()
+        start_time = time.time()
 
+        try:
+            data_link = requests.get(link, auth=self.auth, params=self.params).json()
             name = data_link.get('result', {}).get('name')
 
             if name:
+                print('--------------------------------RESULT BY NAME--------------------------------')
                 LINKS_CACHE[link] = name
+                print('LINK : ', link, ' -> ', name)
+
+                end_time = time.time()
+
+                print('\033[94mProcess time : ', end_time - start_time, 'seconds\033[0m')
 
                 return name
 
             elif not name:
+                print('--------------------------------RESULT BY NUMBER--------------------------------')
                 number = data_link.get('result', {}).get('number')
+                print('LINK : ', link, ' -> ', number)
                 LINKS_CACHE[link] = number
+
+                end_time = time.time()
+
+                print('\033[94mProcess time : ', end_time - start_time, 'seconds\033[0m')
 
                 return number
 
@@ -216,20 +230,29 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
             print(f"Error: HTTP invalid behavior occurred: {e} for URL: {link}")
             return get_final_segment(link)
 
-    def update_link_to_value(self, df : DataFrame) -> None:
-        """Update link to value method"""
+    def update_link_to_value(self, df: DataFrame) -> None:
+        """Update link to value method using apply"""
+
+        def replace_link(value):
+            if value:
+                link = value['link']
+
+                if link in LINKS_CACHE:
+                    return LINKS_CACHE[link]
+                else:
+                    return self.fetch_value_from_link(str(link))
+
+            return value
+
+        i = 0
 
         # Browse registered columns type dictionary
         for col in COLUMNS_TYPE_DICT:
-            for value in df[col]:
-                if value:
-                    link = value['link']
-
-                    if link in LINKS_CACHE:
-                        df[col][value] = LINKS_CACHE[link]
-
-                    else:
-                        df[col][value] = self.fetch_value_from_link(str(link))
+            start_time = time.time()
+            df[col] = df[col].apply(replace_link)
+            end_time = time.time()
+            print('\033[94m\nIteration ', i, ' in ', end_time - start_time, 'seconds\n\033[0m')
+            i+= 1
 
     def fetch_source(self, verbose=None) -> bool:
         """Create parquet file(s) from the source"""
@@ -259,9 +282,11 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
                     # Manage Service_Now source
                     case "SERVICE_NOW":
+
                         data = self.fetch_all_data()
 
                         # TODO: Note : Voir si je peux pas check juste chaques variables du dict, voir si elle contient plus de 2 index, si l'un des deux index est link je fais la transfo, au lieu de checker tout les patterns
+
                         # Data None check
                         if not data.empty:
                             data = self.transform_columns(data)
@@ -275,13 +300,10 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
                             return False
 
                         start_time = time.time()
-
                         self.update_link_to_value(data)
-
                         end_time = time.time()
 
                         treatment_link_time = end_time - start_time
-
                         print(treatment_link_time)
 
                     # Manage CPQ source
