@@ -74,9 +74,8 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
         self.password = self.source_database_param.password
 
         # Authentication and session
-        self.auth = HTTPBasicAuth(self.user, self.password)
         self.session = requests.Session()
-        self.session_auth = self.auth
+        self.session_auth = HTTPBasicAuth(self.user, self.password)
         self.session.headers.update(({'Accept-Encoding': 'gzip, deflate'}))
 
         self.columns_change_date_format = []
@@ -88,7 +87,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
             self.params[
                 "sysparm_query"] = f"{self.bronze_source_properties.date_criteria}>{self.bronze_source_properties.last_update}"
 
-        self.response = requests.get(self.url + self.endpoint, auth=self.auth, params=self.params)
+        self.response = requests.get(self.url + self.endpoint, auth=self.session_auth, params=self.params)
         self.response_data = self.response.json()
 
         print(self.get_bronze_source_properties().name)
@@ -198,26 +197,16 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
         start_time = time.time()
 
-        print('User:', self.user)
-        print('Password:', self.password)
-
         try:
             request_start_time = time.time()
-            data_link = self.session.get(link, params=self.params).json()
+            data_link = self.session.get(link, auth=self.session_auth).json()
             request_end_time = time.time()
-
-
 
             get_start_time = time.time()
             result = data_link.get('result', {})
             name = result.get('name')
             number = result.get('number')
             get_end_time = time.time()
-
-            print('datalink:', data_link)
-            print('Result:', result)
-            print('Name:', name)
-            print('Number:', number)
 
             if name:
                 print('--------------------------------RESULT BY NAME--------------------------------')
