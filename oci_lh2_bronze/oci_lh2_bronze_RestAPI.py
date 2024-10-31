@@ -69,13 +69,16 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
         # Database URL
         self.url = self.source_database_param.url
 
-        # Database user
+        # Database user & password
         self.user = self.source_database_param.user
-
-        # Database password
         self.password = self.source_database_param.password
 
+        # Authentication and session
         self.auth = HTTPBasicAuth(self.user, self.password)
+        self.session = requests.Session()
+        self.session_auth = self.auth
+        self.session.headers.update(({'Accept-Encoding': 'gzip, deflate'}))
+
         self.columns_change_date_format = []
         self.endpoint = self.bronze_source_properties.table
         self.headers = self.source_database_param.headers
@@ -190,47 +193,56 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
         return all_incidents_df
 
-    def fetch_value_from_link(self, link : str):
+    def fetch_value_from_link(self, link: str):
         """Fetch value from link method"""
 
         start_time = time.time()
 
+        print('User:', self.user)
+        print('Password:', self.password)
+
         try:
-            data_link = requests.get(link, auth=self.auth, params=self.params).json()
-            name = data_link.get('result', {}).get('name')
+            request_start_time = time.time()
+            data_link = self.session.get(link, params=self.params).json()
+            request_end_time = time.time()
+
+
+
+            get_start_time = time.time()
+            result = data_link.get('result', {})
+            name = result.get('name')
+            number = result.get('number')
+            get_end_time = time.time()
+
+            print('datalink:', data_link)
+            print('Result:', result)
+            print('Name:', name)
+            print('Number:', number)
 
             if name:
                 print('--------------------------------RESULT BY NAME--------------------------------')
                 LINKS_CACHE[link] = name
                 print('LINK : ', link, ' -> ', name)
-
-                end_time = time.time()
-
-                print('\033[94mProcess time : ', end_time - start_time, 'seconds\033[0m')
-
-                return name
-
-            elif not name:
+            elif number:
                 print('--------------------------------RESULT BY NUMBER--------------------------------')
-                number = data_link.get('result', {}).get('number')
-                print('LINK : ', link, ' -> ', number)
                 LINKS_CACHE[link] = number
-
-                end_time = time.time()
-
-                print('\033[94mProcess time : ', end_time - start_time, 'seconds\033[0m')
-
-                return number
-
+                print('LINK : ', link, ' -> ', number)
             else:
                 return get_final_segment(link)
 
-        # Manage exception thrown
+            end_time = time.time()
+
+            print('\033[94mGet time : ', get_end_time - get_start_time, ' seconds\033[0m')
+            print('\033[94mRequest time : ', request_end_time - request_start_time, ' seconds\033[0m')
+            print('\033[94mProcess time : ', end_time - start_time, ' seconds\033[0m')
+
+            return name if name else number
+
         except Exception as e:
             print(f"Error: HTTP invalid behavior occurred: {e} for URL: {link}")
             return get_final_segment(link)
 
-    def update_link_to_value(self, df: DataFrame) -> None:
+    def update_link_to_value(self, df: DataFrame) -> DataFrame:
         """Update link to value method using apply"""
 
         def replace_link(value):
@@ -246,13 +258,17 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
         i = 0
 
-        # Browse registered columns type dictionary
+        newDF = df.copy()  # Create a copy of the original DataFrame
+
+        # Browse the registered columns type dictionary
         for col in COLUMNS_TYPE_DICT:
             start_time = time.time()
-            df[col] = df[col].apply(replace_link)
+            newDF[col] = df[col].apply(replace_link)  # Apply the function and store the result in the new DataFrame
             end_time = time.time()
-            print('\033[94m\nIteration ', i, ' in ', end_time - start_time, 'seconds\n\033[0m')
-            i+= 1
+            print('\033[94m\nIteration ', i, ' in ', end_time - start_time, ' seconds\n\033[0m')
+            i += 1
+
+        return newDF
 
     def fetch_source(self, verbose=None) -> bool:
         """Create parquet file(s) from the source"""
@@ -300,7 +316,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
                             return False
 
                         start_time = time.time()
-                        self.update_link_to_value(data)
+                        data = self.update_link_to_value(data)
                         end_time = time.time()
 
                         treatment_link_time = end_time - start_time
