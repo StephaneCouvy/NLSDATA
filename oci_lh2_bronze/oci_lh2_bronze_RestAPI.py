@@ -14,13 +14,6 @@ from pandas.core.interchange.dataframe_protocol import Column
 from nlsdata.oci_lh2_bronze.oci_lh2_bronze import *
 from requests.auth import HTTPBasicAuth
 
-CHANGE_DATE_FORMAT = ['sys_updated_on', 'inc_sys_updated_on', 'md_sys_updated_on', 'mi_sys_updated_on',
-                      'sys_created_on', 'closed_at', 'opened_at', 'business_duration', 'activity_due', 'sla_due'
-                      'calendar_duration', 'requested_by_date', 'approval_set', 'end_date', 'work_start', 'start_date',
-                      'work_end', 'conflict_last_run', 'resolved_at', 'u_duration_calc', 'reopened_time', 'u_state_changed_date',
-                      'inc_u_duration_calc', 'mi_sys_created_on', 'inc_sys_created_on', 'inc_business_duration', 'due_date'
-                      'inc_calendar_duration', 'md_sys_created_on', 'inc_opened_at', 'inc_resolved_at', 'inc_closed_at', 'mi_business_duration', 'mi_duration', 'mi_start', 'mi_end']
-
 LINKS_CACHE = {}
 COLUMNS_TYPE_DICT = []
 
@@ -82,15 +75,14 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
         self.endpoint = self.bronze_source_properties.table
         self.headers = self.source_database_param.headers
         self.params = self.source_database_param.params
+        self.columns_change_date_format = []
 
         if self.bronze_source_properties.incremental:
             self.params[
                 "sysparm_query"] = f"{self.bronze_source_properties.date_criteria}>{self.bronze_source_properties.last_update}"
 
-        self.response = requests.get(self.url + self.endpoint, auth=self.session_auth, params=self.params)
+        self.response = requests.get(self.url + self.endpoint, auth=self.auth, params=self.params)
         self.response_data = self.response.json()
-
-        print(self.get_bronze_source_properties().name)
 
         if self.response.status_code != 200:
             vError = "ERROR connecting to : {}".format(self.get_bronze_source_properties().name)
