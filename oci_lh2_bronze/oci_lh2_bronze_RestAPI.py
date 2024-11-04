@@ -46,7 +46,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
                 "sysparm_query"] = f"{self.bronze_source_properties.date_criteria}>{self.bronze_source_properties.last_update}"
 
         self.response = requests.get(self.url + self.endpoint, auth=self.auth, params=self.params)
-        self.response_data = self.response.json()
+        #self.response_data = self.response.json()
 
         if self.response.status_code != 200:
             vError = "ERROR connecting to : {}".format(self.get_bronze_source_properties().name)
@@ -87,12 +87,35 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
         '''
         Fetch chunk data
         '''
+        chunk_size = self.params["sysparm_limit"]
+        chunk_offset = self.params["sysparm_offset"]
+        df = pd.DataFrame()
+
         try:
-            # Get json data
-            self.response.raise_for_status()
-            data = self.response.json()
-            tmp = data.get('result', [])
-            df = pd.DataFrame(tmp)
+            while True:
+                # Envoie la requête HTTP
+                response = requests.get(self.url + self.endpoint, auth=self.auth, params=self.params)
+
+                # Vérifie si la requête a réussi
+                if response.status_code != 200:
+                    raise Exception(f"Failed to fetch data: {response.status_code} - {response.text}")
+
+                # Récupère les données JSON
+                data = response.json()
+                result_data = data.get('result', [])
+
+                # Si le chunk est vide, on arrête la boucle
+                if not result_data:
+                    break
+
+                # Convertit les données en DataFrame et les concatène
+                chunk_df = pd.DataFrame(result_data)
+                df = pd.concat([df, chunk_df], ignore_index=True)
+
+                # Augmente les paramètres pour la pagination
+                self.params["sysparm_offset"] += chunk_size
+                print(self.params["sysparm_offset"])
+
             return df
 
         except requests.RequestException as e:
@@ -142,7 +165,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
         if all_incidents_df.empty:
             all_incidents_df = None
-            print("No data fetched.")
+            print("No incidents fetched.")
 
         return all_incidents_df
 
@@ -189,14 +212,14 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
     def update_link_to_value(self, df):
         for col in COLUMNS_TYPE_DICT:
             print(col)
-            for value in df[col]:
+            for index, value in df[col].items():
                 if value:
                     link = value['link']
 
                     if link in LINKS_CACHE:
-                        df[col][value] = LINKS_CACHE[link]
+                        df.at[index, col] = LINKS_CACHE[link]
                     else:
-                        df[col][value] = self.fetch_value_from_link(link)
+                        df.at[index, col] = self.fetch_value_from_link(link)
 
         return df
 
@@ -222,10 +245,13 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
                 # TODO: manage different case between SERVICENOW and CPQ
                 match self.get_bronze_source_properties().name:
                     case "SERVICE_NOW":
+                        start_time = time.time()
                         data = self.fetch_all_data()
+                        '''for col in data.columns:
+                            print(col)'''
                         data = self.transform_columns(data)
                         self.get_columns_type_dict(data)
-                        start_time = time.time()
+
                         self.update_link_to_value(data)
                         end_time = time.time()
 
