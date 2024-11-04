@@ -81,7 +81,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
             self.params[
                 "sysparm_query"] = f"{self.bronze_source_properties.date_criteria}>{self.bronze_source_properties.last_update}"
 
-        self.response = requests.get(self.url + self.endpoint, auth=self.auth, params=self.params)
+        self.response = requests.get(self.url + self.endpoint, auth=self.session_auth, params=self.params)
         self.response_data = self.response.json()
 
         if self.response.status_code != 200:
@@ -127,12 +127,34 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
     def fetch_chunk(self) -> Union[list, pd.DataFrame]:
         """Fetch chunk data method"""
 
+        chunk_size = self.params["sysparm_limit"]
+        df = pd.DataFrame()
+
         try:
-            # Get json data
-            self.response.raise_for_status()
-            data = self.response.json()
-            tmp = data.get('result', [])
-            df = pd.DataFrame(tmp)
+            while True:
+                # Send HTTP request
+                #response = requests.get(self.url + self.endpoint, auth=self.session_auth, params=self.params)
+                response = self.session.get(self.url + self.endpoint, auth=self.session_auth)
+
+                # Check if the request was successful
+                if response.status_code != 200:
+                    raise Exception(f"Failed to fetch data: {response.status_code} - {response.text}")
+
+                # Retrieve JSON data
+                data = response.json()
+                result_data = data.get('result', [])
+
+                # If the chunk is empty, break the loop
+                if not result_data:
+                    break
+
+                # Convert data to DataFrame and concatenate
+                chunk_df = pd.DataFrame(result_data)
+                df = pd.concat([df, chunk_df], ignore_index=True)
+
+                # Increase parameters for pagination
+                self.params["sysparm_offset"] += chunk_size
+                print(self.params["sysparm_offset"])
 
             return df
 
