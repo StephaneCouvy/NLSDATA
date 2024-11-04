@@ -290,8 +290,6 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
                         data = self.fetch_all_data()
 
-                        # TODO: Note : Voir si je peux pas check juste chaques variables du dict, voir si elle contient plus de 2 index, si l'un des deux index est link je fais la transfo, au lieu de checker tout les patterns
-
                         # Data None check
                         if not data.empty:
                             data = self.transform_columns(data)
