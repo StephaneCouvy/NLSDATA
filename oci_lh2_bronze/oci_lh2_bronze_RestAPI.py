@@ -248,7 +248,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
             self.df_table_content = pd.DataFrame(data)
 
             res = self.__create_parquet_file__(verbose)
-
+            #test
             if not res:
                 raise Exception("Error creating parquet file")
 
