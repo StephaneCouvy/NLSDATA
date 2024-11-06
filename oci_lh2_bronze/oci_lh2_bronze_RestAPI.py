@@ -127,44 +127,12 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
     def fetch_chunk(self) -> Union[list, pd.DataFrame]:
         """Fetch chunk data method"""
 
-        chunk_size = self.params["sysparm_limit"]
-        df = pd.DataFrame()
-
         try:
-            while True:
-                # Send HTTP request
-                start_time = time.time()
-                #response = self.requests.get(self.url + self.endpoint, auth=self.session_auth, params=self.params)
-
-                response = self.session.get(self.url + self.endpoint, auth=self.session_auth, params=self.params)
-
-                print('FETCH CHUNK: ', time.time() - start_time)
-
-                # Check if the request was successful
-                if response.status_code != 200:
-                    raise Exception(f"Failed to fetch data: {response.status_code} - {response.text}")
-
-                new_start_time = time.time()
-
-                # Retrieve JSON data
-                data = self.response.json()
-                result_data = data.get('result', [])
-                print('RESULT:', time.time() - new_start_time)
-
-                # If the chunk is empty, break the loop
-                if not result_data:
-                    break
-
-                new1_start_time = time.time()
-
-                # Convert data to DataFrame and concatenate
-                chunk_df = pd.DataFrame(result_data)
-                df = pd.concat([df, chunk_df], ignore_index=True)
-
-                print('CONCAT :', time.time() - new1_start_time)
-
-                # Increase parameters for pagination
-                self.params["sysparm_offset"] += chunk_size
+            # Get json data
+            self.response.raise_for_status()
+            data = self.response.json()
+            tmp = data.get('result', [])
+            df = pd.DataFrame(tmp)
 
             return df
 
