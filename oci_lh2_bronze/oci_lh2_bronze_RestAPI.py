@@ -1,3 +1,6 @@
+import concurrent
+import threading
+
 import aiohttp
 import asyncio
 import oracledb
@@ -108,6 +111,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
     def __set_bronze_table_settings__(self) -> None:
         """Set Bronze bucket proxy method"""
+
         v_bronze_table_name = self.get_bronze_source_properties().bronze_table_name
 
         if not v_bronze_table_name:
@@ -124,20 +128,47 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
             [f"{key}" for key in v_dict_externaltablepartition.values()]) + "/"
         self.parquet_file_id = self.__get_last_parquet_idx_in_bucket__()
 
-    def fetch_chunk(self) -> Union[list, pd.DataFrame]:
-        """Fetch chunk data method"""
+    def fetch_chunk(self):
+        '''
+        Fetch chunk data
+        '''
+
+        chunk_size = self.params["sysparm_limit"]
+        chunk_offset = self.params["sysparm_offset"]
+        df = pd.DataFrame()
 
         try:
-            # Get json data
-            self.response.raise_for_status()
-            data = self.response.json()
-            tmp = data.get('result', [])
-            df = pd.DataFrame(tmp)
+            while True:
+                # Envoie la requête HTTP
+                response = requests.get(self.url + self.endpoint, auth=self.session_auth, params=self.params)
+
+                # Vérifie si la requête a réussi
+                if response.status_code != 200:
+                    raise Exception(f"Failed to fetch data: {response.status_code} - {response.text}")
+
+                # Récupère les données JSON
+                data = response.json()
+                result_data = data.get('result', [])
+
+                # Si le chunk est vide, on arrête la boucle
+                if not result_data:
+                    break
+
+                # Convertit les données en DataFrame et les concatène
+                chunk_df = pd.DataFrame(result_data)
+                df = pd.concat([df, chunk_df], ignore_index=True)
+
+                # Augmente les paramètres pour la pagination
+                self.params["sysparm_offset"] += chunk_size
+                print(self.params["sysparm_offset"])
 
             return df
 
+        except requests.RequestException as e:
+            print(f"HTTP error occurred: {e}")
+            return []
         except Exception as e:
-            print(f"Error: An unexpected error occurred: {e}")
+            print(f"An unexpected error occurred: {e}")
             return []
 
     def set_columns_to_transform(self, df : DataFrame) -> None:
@@ -226,28 +257,45 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
     def update_link_to_value(self, df: DataFrame) -> DataFrame:
         """Update link to value method using apply"""
 
-        def replace_link(value):
-            if value:
-                link = value['link']
-
-                if link in LINKS_CACHE:
-                    return LINKS_CACHE[link]
-                else:
-                    return self.fetch_value_from_link(str(link))
-
-            return value
-
-        i = 0
-
         newDF = df.copy()  # Create a copy of the original DataFrame
+        fetch_tasks = []
 
-        # Browse the registered columns type dictionary
+        # Preliminary loop to collect tasks for fetching values
+        for col in COLUMNS_TYPE_DICT:
+            for value in df[col]:
+                if value and value['link'] not in LINKS_CACHE:
+                    fetch_tasks.append((value['link'],))
+
+        print(f"Number of threads needed: {len(fetch_tasks)}")
+
+        # Function to fetch value and update the cache
+        def fetch_and_cache(link):
+            if link not in LINKS_CACHE:
+                LINKS_CACHE[link] = self.fetch_value_from_link(str(link))
+            return LINKS_CACHE[link]
+
+        # Use ThreadPoolExecutor to parallelize fetch_value_from_link calls
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(fetch_tasks)) as executor:
+            future_to_link = {executor.submit(fetch_and_cache, link): link for link, in fetch_tasks}
+
+            for future in concurrent.futures.as_completed(future_to_link):
+                link = future_to_link[future]
+                try:
+                    future.result()
+                except Exception as e:
+                    print(f"Error fetching link {link}: {e}")
+
+        # Apply the function directly within the loop
         for col in COLUMNS_TYPE_DICT:
             start_time = time.time()
-            newDF[col] = df[col].apply(replace_link)  # Apply the function and store the result in the new DataFrame
+            newDF[col] = df[col].apply(
+                lambda value: (
+                    LINKS_CACHE[value['link']] if value and value['link'] in LINKS_CACHE
+                    else value
+                )
+            )
             end_time = time.time()
-            print('\033[94m\nIteration ', i, ' in ', end_time - start_time, ' seconds\n\033[0m')
-            i += 1
+            print('\033[94m\nIteration ', col, ' in ', end_time - start_time, ' seconds\n\033[0m')
 
         return newDF
 
