@@ -139,34 +139,31 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
         try:
             while True:
-                # Envoie la requête HTTP
+                # Send the HTTP request
                 response = requests.get(self.url + self.endpoint, auth=self.session_auth, params=self.params)
 
-                # Vérifie si la requête a réussi
+                # Check if the request was successful
                 if response.status_code != 200:
                     raise Exception(f"Failed to fetch data: {response.status_code} - {response.text}")
 
-                # Récupère les données JSON
+                # Retrieve the JSON data
                 data = response.json()
                 result_data = data.get('result', [])
 
-                # Si le chunk est vide, on arrête la boucle
+                # If the chunk is empty, break the loop
                 if not result_data:
                     break
 
-                # Convertit les données en DataFrame et les concatène
+                # Convert the data to a DataFrame and concatenate
                 chunk_df = pd.DataFrame(result_data)
                 df = pd.concat([df, chunk_df], ignore_index=True)
 
-                # Augmente les paramètres pour la pagination
+                # Increase the parameters for pagination
                 self.params["sysparm_offset"] += chunk_size
                 print(self.params["sysparm_offset"])
 
             return df
 
-        except requests.RequestException as e:
-            print(f"HTTP error occurred: {e}")
-            return []
         except Exception as e:
             print(f"An unexpected error occurred: {e}")
             return []
@@ -265,8 +262,6 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
             for value in df[col]:
                 if value and value['link'] not in LINKS_CACHE:
                     fetch_tasks.append((value['link'],))
-
-        print(f"Number of threads needed: {len(fetch_tasks)}")
 
         # Function to fetch value and update the cache
         def fetch_and_cache(link):
