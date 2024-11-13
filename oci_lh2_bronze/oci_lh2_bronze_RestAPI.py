@@ -58,7 +58,6 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
         self.LINKS_CACHE = {}
         self.COLUMNS_TYPE_DICT = []
 
-
         if self.bronze_source_properties.incremental:
             self.params[
                 "sysparm_query"] = f"{self.bronze_source_properties.date_criteria}>{self.bronze_source_properties.last_update}"
@@ -193,11 +192,11 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
             if isinstance(value, dict) and 'link' in value:
                 link = str(value['link'])
                 if link in self.LINKS_CACHE:
-                    print(f"Cache hit for link: {link} -> {self.LINKS_CACHE[link]}")
+                    #print(f"Cache hit for link: {link} -> {self.LINKS_CACHE[link]}")
                     return self.LINKS_CACHE[link]
                 else:
                     self.LINKS_CACHE[link] = self.get_value_from_link(link, value)
-                    print(f"Cache miss for link: {link}. Fetching from server... -> {self.LINKS_CACHE[link]}")
+                    #print(f"Cache miss for link: {link}. Fetching from server... -> {self.LINKS_CACHE[link]}")
                     return self.LINKS_CACHE[link]
             return value
 
@@ -233,27 +232,38 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
     def get_value_from_link(self, link, value):
         """Get value from the link"""
 
-        def handle_response(response):
+        def manage_http_errors(response):
+            """Treatment of different http errors possible"""
+
+            # Check if the status code of response is 404 (url not found)
             if response.status_code == 404:
                 if self.get_final_segment(link) == 'global':
                     return 'global'
                 else:
                     response_content = response.content.decode('utf-8')
+
+                    # Check if the status of response's content is "failure"
                     if response_content == '{"error":{"message":"No Record found","detail":"Record doesn\'t exist or ACL restricts the record retrieval"},"status":"failure"}':
                         return None
+
+                    # Need to check the link to manage this case as http error
                     return 'Need check'
+
+            # Check if the status code of response is 429 (too many requests)
             elif response.status_code == 429:
                 return 'Retry'
+
             elif response.status_code != 200:
                 raise Exception(f"Failed to fetch data: {response.status_code} - {response.text}")
+
             return response.json().get('result', {}).get('name')
 
         while True:
             response = requests.get(link, auth=self.session_auth)
-            result = handle_response(response)
+            result = manage_http_errors(response)
             if result != 'Retry':
                 self.LINKS_CACHE[link] = result
-                print(result)
+                #print(result)
                 return result
 
     def fetch_source(self, verbose=None) -> bool:
@@ -283,6 +293,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
                     self.transform_columns(data)
 
+                    # Check if the df data is empty
                     if not data.empty:
                         self.get_columns_type_dict(data)
 
