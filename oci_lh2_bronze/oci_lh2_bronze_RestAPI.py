@@ -17,32 +17,8 @@ from pandas.core.interchange.dataframe_protocol import Column
 from nlsdata.oci_lh2_bronze.oci_lh2_bronze import *
 from requests.auth import HTTPBasicAuth
 
-LINKS_CACHE = {}
-COLUMNS_TYPE_DICT = []
-
 # Column's name where name is a SQL operation
 RENAME_COLUMNS = ['number', 'order']
-
-
-def set_columns_type_dict(df : DataFrame) -> None:
-    """Get columns type dict method"""
-    for col in df.columns:
-        if df[col].apply(lambda x: isinstance(x, dict)).any():
-            COLUMNS_TYPE_DICT.append(col)
-
-
-def get_final_segment(link : str) -> Any | None:
-    """Get final segment method"""
-
-    final_segment = link.rsplit('/', 1)[-1]
-
-    if final_segment == 'global':
-        LINKS_CACHE[link] = final_segment
-        return final_segment
-
-    else:
-        LINKS_CACHE[link] = None
-        return None
 
 
 class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
@@ -79,17 +55,13 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
         self.headers = self.source_database_param.headers
         self.params = self.source_database_param.params
         self.columns_change_date_format = []
+        self.LINKS_CACHE = {}
+        self.COLUMNS_TYPE_DICT = []
+
 
         if self.bronze_source_properties.incremental:
             self.params[
                 "sysparm_query"] = f"{self.bronze_source_properties.date_criteria}>{self.bronze_source_properties.last_update}"
-
-        self.response = requests.get(self.url + self.endpoint, auth=self.session_auth, params=self.params)
-        self.response_data = self.response.json()
-
-        if self.response.status_code != 200:
-            vError = "ERROR connecting to : {}".format(self.get_bronze_source_properties().name)
-            raise Exception(vError)
 
     def get_bronze_row_lastupdate_date(self) -> Any:
         """Get Bronze row lasupdate date method"""
@@ -128,47 +100,19 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
             [f"{key}" for key in v_dict_externaltablepartition.values()]) + "/"
         self.parquet_file_id = self.__get_last_parquet_idx_in_bucket__()
 
-    def fetch_chunk(self):
-        '''
-        Fetch chunk data
-        '''
+    def get_final_segment(self, link):
+        """Get the final segment of the URL"""
 
-        chunk_size = self.params["sysparm_limit"]
-        chunk_offset = self.params["sysparm_offset"]
-        df = pd.DataFrame()
+        return link.rstrip('/').split('/')[-1]
 
-        try:
-            while True:
-                # Send the HTTP request
-                response = requests.get(self.url + self.endpoint, auth=self.session_auth, params=self.params)
+    def get_columns_type_dict(self, df: DataFrame) -> None:
+        """Get columns type dict method"""
 
-                # Check if the request was successful
-                if response.status_code != 200:
-                    raise Exception(f"Failed to fetch data: {response.status_code} - {response.text}")
+        for col in df.columns:
+            if df[col].apply(lambda x: isinstance(x, dict)).any():
+                self.COLUMNS_TYPE_DICT.append(col)
 
-                # Retrieve the JSON data
-                data = response.json()
-                result_data = data.get('result', [])
-
-                # If the chunk is empty, break the loop
-                if not result_data:
-                    break
-
-                # Convert the data to a DataFrame and concatenate
-                chunk_df = pd.DataFrame(result_data)
-                df = pd.concat([df, chunk_df], ignore_index=True)
-
-                # Increase the parameters for pagination
-                self.params["sysparm_offset"] += chunk_size
-                print(self.params["sysparm_offset"])
-
-            return df
-
-        except Exception as e:
-            print(f"An unexpected error occurred: {e}")
-            return []
-
-    def set_columns_to_transform(self, df : DataFrame) -> None:
+    def get_columns_to_transform(self, df : DataFrame) -> None:
         """Get columns from df where date format is str(yyyy-MM-DD HH:MM:SS)"""
 
         for col in df.columns:
@@ -186,11 +130,10 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
     def transform_columns(self, df : DataFrame) -> DataFrame:
         """Change date format, timezone, and columns where column's name is a SQL operation"""
 
-        self.set_columns_to_transform(df)
+        self.get_columns_to_transform(df)
 
         for col in self.columns_change_date_format:
-            df[col] = df[col].str.replace('-', '/', regex=False)
-            df[col] = pd.to_datetime(df[col], format='%Y/%m/%d %H:%M:%S')
+            df[col] = pd.to_datetime(df[col])
             df[col] = df[col].dt.tz_localize('UTC')
             df[col] = df[col].dt.tz_convert('Europe/Paris')
 
@@ -200,78 +143,76 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
         return df
 
-    def fetch_all_data(self) -> Union[DataFrame | list | None]:
-        """Return a df with all incidents"""
+    def fetch_data(self):
+        """Return a DataFrame with data"""
 
-        all_incidents_df = self.fetch_chunk()
-
-        # Check if 'all_incidents_df' is empty
-        if all_incidents_df.empty:
-            print("No data fetched.")
-            return None
-
-        return all_incidents_df
-
-    def fetch_value_from_link(self, link: str):
-        """Fetch value from link method"""
-
-        start_time = time.time()
+        chunk_size = self.params.get("sysparm_limit", 1000)
+        self.params["sysparm_offset"] = self.params.get("sysparm_offset", 0)
+        df_list = []
 
         try:
-            request_start_time = time.time()
-            data_link = self.session.get(link, auth=self.session_auth).json()
-            request_end_time = time.time()
+            while True:
+                # Send the HTTP request
+                response = requests.get(self.url + self.endpoint, auth=self.session_auth, params=self.params)
 
-            get_start_time = time.time()
-            result = data_link.get('result', {})
-            name = result.get('name')
-            number = result.get('number')
-            get_end_time = time.time()
+                # Check if the request was successful
+                if response.status_code != 200:
+                    raise Exception(f"Failed to fetch data: {response.status_code} - {response.text}")
 
-            if name:
-                print('--------------------------------RESULT BY NAME--------------------------------')
-                LINKS_CACHE[link] = name
-                print('LINK : ', link, ' -> ', name)
-            elif number:
-                print('--------------------------------RESULT BY NUMBER--------------------------------')
-                LINKS_CACHE[link] = number
-                print('LINK : ', link, ' -> ', number)
+                # Retrieve the JSON data
+                data = response.json().get('result', [])
+
+                # If the chunk is empty, break the loop
+                if not data:
+                    break
+
+                # Convert the data to a DataFrame and append to the list
+                chunk_df = pd.DataFrame(data)
+                df_list.append(chunk_df)
+
+                # Increase the parameters for pagination
+                self.params["sysparm_offset"] += chunk_size
+                print(self.params["sysparm_offset"])
+
+            # Check if df_list is not empty before concatenating
+            if df_list:
+                df = pd.concat(df_list, ignore_index=True)
             else:
-                return get_final_segment(link)
+                df = pd.DataFrame()
 
-            end_time = time.time()
-
-            print('\033[94mGet time : ', get_end_time - get_start_time, ' seconds\033[0m')
-            print('\033[94mRequest time : ', request_end_time - request_start_time, ' seconds\033[0m')
-            print('\033[94mProcess time : ', end_time - start_time, ' seconds\033[0m')
-
-            return name if name else number
+            return df
 
         except Exception as e:
-            print(f"Error: HTTP invalid behavior occurred: {e} for URL: {link}")
-            return get_final_segment(link)
+            print(f"An unexpected error occurred: {e}")
+            return None
 
-    def update_link_to_value(self, df: DataFrame) -> DataFrame:
+    def update_link_to_value(self, df: pd.DataFrame):
         """Update link to value method using apply"""
+
+        def fetch_and_cache(value):
+            if isinstance(value, dict) and 'link' in value:
+                link = str(value['link'])
+                if link in self.LINKS_CACHE:
+                    print(f"Cache hit for link: {link} -> {self.LINKS_CACHE[link]}")
+                    return self.LINKS_CACHE[link]
+                else:
+                    self.LINKS_CACHE[link] = self.get_value_from_link(link, value)
+                    print(f"Cache miss for link: {link}. Fetching from server... -> {self.LINKS_CACHE[link]}")
+                    return self.LINKS_CACHE[link]
+            return value
 
         newDF = df.copy()  # Create a copy of the original DataFrame
         fetch_tasks = []
 
         # Preliminary loop to collect tasks for fetching values
-        for col in COLUMNS_TYPE_DICT:
+        for col in self.COLUMNS_TYPE_DICT:
             for value in df[col]:
-                if value and value['link'] not in LINKS_CACHE:
+                if value and isinstance(value, dict) and 'link' in value and value['link'] not in self.LINKS_CACHE:
                     fetch_tasks.append((value['link'],))
 
-        # Function to fetch value and update the cache
-        def fetch_and_cache(link):
-            if link not in LINKS_CACHE:
-                LINKS_CACHE[link] = self.fetch_value_from_link(str(link))
-            return LINKS_CACHE[link]
-
-        # Use ThreadPoolExecutor to parallelize fetch_value_from_link calls
+        # Use ThreadPoolExecutor to parallelize get_value_from_link calls
         with concurrent.futures.ThreadPoolExecutor(max_workers=len(fetch_tasks)) as executor:
-            future_to_link = {executor.submit(fetch_and_cache, link): link for link, in fetch_tasks}
+            future_to_link = {executor.submit(fetch_and_cache, {'link': link}): link for link, in fetch_tasks}
 
             for future in concurrent.futures.as_completed(future_to_link):
                 link = future_to_link[future]
@@ -281,91 +222,94 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
                     print(f"Error fetching link {link}: {e}")
 
         # Apply the function directly within the loop
-        for col in COLUMNS_TYPE_DICT:
+        for col in self.COLUMNS_TYPE_DICT:
             start_time = time.time()
-            newDF[col] = df[col].apply(
-                lambda value: (
-                    LINKS_CACHE[value['link']] if value and value['link'] in LINKS_CACHE
-                    else value
-                )
-            )
+            newDF[col] = df[col].apply(fetch_and_cache)
             end_time = time.time()
-            print('\033[94m\nIteration ', col, ' in ', end_time - start_time, ' seconds\n\033[0m')
+            print(f"\nIteration {col} in {end_time - start_time} seconds\n")
 
         return newDF
+
+    def get_value_from_link(self, link, value):
+        """Get value from the link"""
+
+        def handle_response(response):
+            if response.status_code == 404:
+                if self.get_final_segment(link) == 'global':
+                    return 'global'
+                else:
+                    response_content = response.content.decode('utf-8')
+                    if response_content == '{"error":{"message":"No Record found","detail":"Record doesn\'t exist or ACL restricts the record retrieval"},"status":"failure"}':
+                        return None
+                    return 'Need check'
+            elif response.status_code == 429:
+                return 'Retry'
+            elif response.status_code != 200:
+                raise Exception(f"Failed to fetch data: {response.status_code} - {response.text}")
+            return response.json().get('result', {}).get('name')
+
+        while True:
+            response = requests.get(link, auth=self.session_auth)
+            result = handle_response(response)
+            if result != 'Retry':
+                self.LINKS_CACHE[link] = result
+                print(result)
+                return result
 
     def fetch_source(self, verbose=None) -> bool:
         """Create parquet file(s) from the source"""
 
         try:
-            # Check response status code, on 200 throw an Exception
-            if self.response.status_code != 200:
-                raise Exception("Error: no DB connection")
-
-            else:
-                # On verbose mode, prepare log messages
-                if verbose:
-                    message = "Mode {2} : Extracting data {0},{1}".format(self.get_bronze_source_properties().schema,
+            if verbose:
+                message = "Mode {2} : Extracting data {0},{1}".format(self.get_bronze_source_properties().schema,
                                                                           self.get_bronze_source_properties().table,
                                                                           SQL_READMODE)
 
-                    verbose.log(datetime.now(tz=timezone.utc), "FETCH", "START", log_message=message,
-                                log_request=self.request + ': ' + str(self.db_execute_bind))
+                verbose.log(datetime.now(tz=timezone.utc), "FETCH", "START", log_message=message,
+                            log_request=self.request + ': ' + str(self.db_execute_bind))
 
-                self.df_table_content = pd.DataFrame()
-                data = self.response.json()
+            self.df_table_content = pd.DataFrame()
+            data = None
 
-                # TODO: manage different case between SERVICENOW and CPQ
+            # TODO: manage different case between SERVICENOW and CPQ
 
-                # Manage every type of source properties
-                match self.get_bronze_source_properties().name:
+            # Manage every type of source properties
+            match self.get_bronze_source_properties().name:
 
-                    # Manage Service_Now source
-                    case "SERVICE_NOW":
+                # Manage Service_Now source
+                case "SERVICE_NOW":
 
-                        data = self.fetch_all_data()
+                    data = self.fetch_data()
 
-                        # Data None check
-                        if not data.empty:
-                            data = self.transform_columns(data)
-                        else:
-                            return False
+                    self.transform_columns(data)
 
-                        # Data None check
-                        if not data.empty:
-                            set_columns_type_dict(data)
-                        else:
-                            return False
+                    if not data.empty:
+                        self.get_columns_type_dict(data)
 
-                        start_time = time.time()
-                        data = self.update_link_to_value(data)
-                        end_time = time.time()
+                    data = self.update_link_to_value(data)
 
-                        treatment_link_time = end_time - start_time
-                        print(treatment_link_time)
+                # Manage CPQ source
+                case "CPQ":
+                    data = data['items']
 
-                    # Manage CPQ source
-                    case "CPQ":
-                        data = data['items']
+            self.df_table_content = pd.DataFrame(data)
 
-                self.df_table_content = pd.DataFrame(data)
+            # Res None check
+            res = self.__create_parquet_file__(verbose)
 
-                res = self.__create_parquet_file__(verbose)
+            if not res:
+                raise Exception("Error: creating parquet file")
 
-                # Res None check
-                if not res:
-                    raise Exception("Error: creating parquet file")
+            self.__update_fetch_row_stats__()
 
-                self.__update_fetch_row_stats__()
+            elapsed = datetime.now() - self.fetch_start
 
-                elapsed = datetime.now() - self.fetch_start
+            # On verbose mode, prepare log messages
+            if verbose:
+                message = "{0} rows in {1} seconds".format(self.total_imported_rows, elapsed)
+                verbose.log(datetime.now(tz=timezone.utc), "FETCH", "RUN", log_message=message)
 
-                # On verbose mode, prepare log messages
-                if verbose:
-                    message = "{0} rows in {1} seconds".format(self.total_imported_rows, elapsed)
-                    verbose.log(datetime.now(tz=timezone.utc), "FETCH", "RUN", log_message=message)
-
-                return True
+            return True
 
         # Manage every exception thrown, and print depending on exception type
         except (UnicodeDecodeError, oracledb.Error, Exception) as err:
