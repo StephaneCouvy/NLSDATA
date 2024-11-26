@@ -267,7 +267,7 @@ class BronzeExploit:
     Define metohd to update src_dat_lastupdate for table with incremental integration
     '''
 
-    def __init__(self, p_bronze_config:BronzeConfig, p_logger:BronzeLogger, p_verbose=None, **optional_args):
+    def __init__(self, p_bronze_config:BronzeConfig, p_logger:BronzeLogger, p_verbose=None, **p_optional_args):
         '''BronzeExploit method'''
 
         self.idx = 0
@@ -281,7 +281,7 @@ class BronzeExploit:
         v_cursor = self.get_db_connection().cursor()
 
         # Drop temporary running loding table or Not (Default) 
-        self.not_drop_running_loading_table = optional_args.get(EXPLOIT_ARG_NOT_DROP_TEMP_RUNNING_LOADING_TABLE, True)
+        self.not_drop_running_loading_table = p_optional_args.get(EXPLOIT_ARG_NOT_DROP_TEMP_RUNNING_LOADING_TABLE, True)
 
         # Create running/temporary List Datasource loading table.
         # Insert list of tables to import
@@ -293,21 +293,21 @@ class BronzeExploit:
         if self.verbose:
             self.verbose.log(datetime.now(tz=timezone.utc), "EXPLOIT", "START", log_message=v_message)
             
-        if optional_args.get(EXPLOIT_ARG_LOADING_TABLE, None):
-            self.batch_loading_table = optional_args[EXPLOIT_ARG_LOADING_TABLE]
+        if p_optional_args.get(EXPLOIT_ARG_LOADING_TABLE, None):
+            self.batch_loading_table = p_optional_args[EXPLOIT_ARG_LOADING_TABLE]
         else:    
             self.batch_loading_table = self.exploit_loading_table
         
-        v_log_table = optional_args.get(EXPLOIT_ARG_LOG_TABLE, None)
+        v_log_table = p_optional_args.get(EXPLOIT_ARG_LOG_TABLE, None)
         v_interval_start = ''
         v_interval_end = ''
         
-        if optional_args.get(EXPLOIT_ARG_RELOAD_ON_ERROR_INTERVAL, None) :
-            v_interval_start = optional_args[EXPLOIT_ARG_RELOAD_ON_ERROR_INTERVAL][0].strftime("%Y-%m-%d %H:%M:%S")
+        if p_optional_args.get(EXPLOIT_ARG_RELOAD_ON_ERROR_INTERVAL, None) :
+            v_interval_start = p_optional_args[EXPLOIT_ARG_RELOAD_ON_ERROR_INTERVAL][0].strftime("%Y-%m-%d %H:%M:%S")
             
             # If end date of intervant not provided, then take Now date
             try:
-                v_interval_end = optional_args[EXPLOIT_ARG_RELOAD_ON_ERROR_INTERVAL][1].strftime("%Y-%m-%d %H:%M:%S")
+                v_interval_end = p_optional_args[EXPLOIT_ARG_RELOAD_ON_ERROR_INTERVAL][1].strftime("%Y-%m-%d %H:%M:%S")
             except IndexError:
                 v_interval_end = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -343,9 +343,9 @@ class BronzeExploit:
         v_df_exploit_datasource.columns = [x[0] for x in v_cursor.description]
         
         # Test if query set to filter data sources
-        v_query = optional_args.get(EXPLOIT_ARG_QUERY,None)
+        v_query = p_optional_args.get(EXPLOIT_ARG_QUERY, None)
         
-        if optional_args.get(EXPLOIT_ARG_QUERY,None) :
+        if p_optional_args.get(EXPLOIT_ARG_QUERY, None) :
             self.df_exploit_datasource_loading = create_filter_mask(v_df_exploit_datasource, v_query)
             
             if self.df_exploit_datasource_loading is None:
@@ -1322,7 +1322,131 @@ class BronzeDbManager:
                 self.bronzeDb_Manager_logger.log(pError=v_err, pAction=v_action)
 
             return v_return
-            
+
+    def bronze_clone_tables_parquets_by_query(self, p_query: str, p_bronze_exploit_dest: BronzeExploit, p_simulate=False,
+                                              p_ask_to_clone=True, p_verbose=None):
+        '''drop bronze tables
+        list of tables return by query on dataframe df_lh2_tables_stats
+        '''
+
+        v_start = datetime.now()
+        v_return = False
+        v_request = "Clone tables parquets on query {} - Simulate {}".format(p_query, str(p_simulate))
+        v_table_list_to_clone = None
+
+        if not self.get_gather_lh2_tables_stats_status():
+            v_log_message = "Need to refresh stats before cloning tables with query {} ".format(p_query)
+
+            if p_verbose:
+                p_verbose.log(datetime.now(tz=timezone.utc), "CLONE_TABLES_PARQUETS_QUERY", "START", log_message=v_log_message)
+
+            return False
+
+        try:
+            v_log_message = "Starting " + v_request
+
+            if p_verbose:
+                p_verbose.log(datetime.now(tz=timezone.utc), "CLONE_TABLES_PARQUETS_QUERY", "START", log_message=v_log_message)
+
+            v_filtered_df_lh2_bronze_table_without_zombies = create_filter_mask(self.get_lh2_bronze_tables_stats(),
+                                                                                f'TABLE_NAME != \'{ZOMBIES_TABLE_NAME}\'')
+            v_filtered_df_lh2_bronze_tables = create_filter_mask(v_filtered_df_lh2_bronze_table_without_zombies,
+                                                                 p_query)
+
+            print(v_filtered_df_lh2_bronze_tables)
+
+            if v_filtered_df_lh2_bronze_tables is None:
+                raise Exception("ERROR, Filtering bronze tables list, review your drop query")
+
+            v_table_list_to_clone = v_filtered_df_lh2_bronze_tables['TABLE_NAME'].tolist()
+
+            if p_verbose:
+                v_log_message = "{} tables to be cloned : {}".format(len(v_table_list_to_clone), v_table_list_to_clone)
+                p_verbose.log(datetime.now(tz=timezone.utc), "CLONE_TABLES_PARQUETS_QUERY", "RUNNING", log_message=v_log_message)
+
+            if p_ask_to_clone:
+                v_user_ask_to_clone = ask_user("Confirm to drop tables")
+
+                if v_user_ask_to_clone == "N":
+                    v_request = "Clone tables parquets on query {} : \n{}".format(p_query, v_table_list_to_clone)
+                    v_log_message = "COMPLETED - NOT CONFIRMED" + v_request
+                    v_action = "COMPLETED" if not p_simulate else "COMPLETED - SIMULATE"
+                    v_err = None
+                    v_return = True
+
+                    return True
+
+            for _, v_row in v_filtered_df_lh2_bronze_tables.iterrows():
+                v_table_data = v_row.to_dict()
+                v_table_name = v_table_data['TABLE_NAME']
+                v_table_partitioned = v_table_data['PARTITIONED']
+                v_clone_result = self.bronze_drop_table(p_table_name=v_table_name, p_simulate=p_simulate,
+                                                       p_verbose=p_verbose)
+
+                if v_clone_result:
+                    # If clone table parquets successfull,
+                    # DESTINATION Exploit record column src_date_lastupdate should be egal to bronze source table src_date_lastupdate
+                    # Idem for columns : bronze_table_name, reset_ladtupdate, bronze_bis_table, bronze_bis_pk, bronze_bis_idx, src_table_idx
+                    # Set to null : bronze_update, bronze_status, bronze_lastupdated_parquet, bronze_bis_update, bronze_bis_status
+                    SOURCE_PROPERTIES_SYNONYMS = {'SRC_TYPE': 'type', 'SRC_NAME': 'name', 'SRC_ORIGIN_NAME': 'schema',
+                                                  'SRC_OBJECT_NAME': 'table',
+                                                  'SRC_OBJECT_CONSTRAINT': 'table_constraint',
+                                                  'SRC_FLAG_ACTIVE': 'active', 'SRC_FLAG_INCR': 'incremental',
+                                                  'SRC_DATE_CONSTRAINT': 'date_criteria',
+                                                  'SRC_DATE_LASTUPDATE': 'last_update', 'FORCE_ENCODE': 'force_encode',
+                                                  'BRONZE_BIS_PK': 'bronze_bis_pk',
+                                                  'BRONZE_POST_PROCEDURE': 'bronze_post_proc',
+                                                  'BRONZE_POST_PROCEDURE_ARGS': 'bronze_post_proc_args',
+                                                  'BRONZE_TABLE_NAME': 'bronze_table_name',
+                                                  'BRONZE_LASTUPLOADED_PARQUET': 'lastuploaded_parquet',
+                                                  'SRC_TABLE_IDX': 'source_table_indexes',
+                                                  'RESET_LASTUPDATE': 'reset_lastupdate',
+                                                  'BRONZE_UPDATE': 'bronze_update'}
+
+                    v_dict_update_exploit = dict()
+                    v_dict_update_exploit['bronze_lastuploaded_parquet'] = None
+                    v_row_exploit = p_bronze_exploit_dest[v_table_name]
+                    v_reset_date_lastupdate = v_row_exploit.reset_lastupdate
+                    v_dict_update_exploit['last_update'] = v_reset_date_lastupdate
+
+                    if p_verbose:
+                        v_log_message = "Update Exploit loading table {} , reset {} - Simulate = {}".format(
+                            v_table_name, v_dict_update_exploit, str(p_simulate))
+                        p_verbose.log(datetime.now(tz=timezone.utc), "DROP_TABLES_QUERY", "RUNNING",
+                                      log_message=v_log_message)
+
+                    if not p_simulate:
+                        if not p_bronze_exploit_dest.update_exploit(v_dict_update_exploit, p_bronze_table_name=v_table_name):
+                            raise Exception(
+                                "ERROR - Update Exploit table {} : {}".format(v_table_name, v_dict_update_exploit))
+
+            v_request = "Drop tables on query {} : \n{}".format(p_query, v_table_list_to_clone)
+            v_log_message = "COMPLETED - " + v_request
+            v_action = "COMPLETED" if not p_simulate else "COMPLETED - SIMULATE"
+            v_err = None
+            v_return = True
+
+        except Exception as err:
+            v_err = err
+            v_action = "ERROR - Drop table - Drop tables on query {} : \n{}".format(p_query, v_table_list_to_clone)
+            v_log_message = str(v_err)
+            v_return = False
+
+        finally:
+            v_duration = datetime.now() - v_start
+            self.bronzeDb_Manager_logger.set_logger_properties(p_src_name=self.get_bronze_database_name(),
+                                                               p_src_origin_name=self.get_db_username(),
+                                                               p_src_object_name="ALL", p_request=v_request,
+                                                               p_duration=v_duration)
+
+            if self.get_db():
+                if p_verbose:
+                    p_verbose.log(datetime.now(tz=timezone.utc), "DROP_TABLES_QUERY", v_action,
+                                  log_message=v_log_message)
+                self.bronzeDb_Manager_logger.log(pError=v_err, pAction=v_action)
+
+            return v_return
+
 
 class BronzeBucketProxy:
     '''Class to provide a substitute to manage bronze bucket.
