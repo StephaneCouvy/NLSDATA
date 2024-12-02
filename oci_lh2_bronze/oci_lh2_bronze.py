@@ -1,21 +1,19 @@
-import socket
-import os
 import os.path
 import oracledb
 import pandas as pd
-
-from nlstools.config_settings import *
-from nlstools.tool_kits import *
-from nlsdb.dbwrapper_factory import *
-from nlsfilestorage.filestorage_wrapper_factory import *
-from nlsfilestorage.filestorage_wrapper.abs_filestorage import *
 from nlsdata.nlsdata_utils import *
+from nlsdb.dbwrapper_factory import *
+from nlsfilestorage.filestorage_wrapper.abs_filestorage import *
+from nlsfilestorage.filestorage_wrapper_factory import *
 
-EXPLOIT_ARG_LOADING_TABLE = 'l'
-EXPLOIT_ARG_LOG_TABLE = 'o'
-EXPLOIT_ARG_RELOAD_ON_ERROR_INTERVAL = 'x'
-EXPLOIT_ARG_NOT_DROP_TEMP_RUNNING_LOADING_TABLE = 'k'
-EXPLOIT_ARG_QUERY = 'q'
+OPTION_ARG_LOADING_TABLE = 'l'
+OPTION_ARG_LOG_TABLE = 'o'
+OPTION_ARG_RELOAD_ON_ERROR_INTERVAL = 'x'
+OPTION_ARG_NOT_DROP_TEMP_RUNNING_LOADING_TABLE = 'k'
+OPTION_ARG_QUERY = 'q'
+OPTION_ARG_SIMULATE = 'simulate'
+OPTION_ARG_NOT_PRE_PROC ='not_pre_proc'
+OPTION_ARG_NOT_POST_PROC ='not_post_proc'
 
 ZOMBIES_TABLE_NAME = 'ZOMBIES'
 #RESET_DATE_LASTUPDATE = datetime.strptime('2018-01-01 00:00:00', '%Y-%m-%d %H:%M:%S')
@@ -47,6 +45,7 @@ ExternalTablePartitionsProperties = namedtuple('ExternalTablePartitionsPropertie
 BronzeProperties = namedtuple('BronzeProperties', ['environment', 'schema', 'table', 'bucket', 'bucket_filepath', 'parquet_template'])
 
 
+# noinspection PyRedundantParentheses
 class BronzeConfig():
     '''Define configuration envrionment parameters to execute.
     Mainly extract parameters from json configuration_file
@@ -142,6 +141,7 @@ class BronzeConfig():
         return self.verboselevel
 
 
+# noinspection PyRedundantParentheses
 class BronzeLogger():
     '''BronzeLogger method'''
 
@@ -281,7 +281,7 @@ class BronzeExploit:
         v_cursor = self.get_db_connection().cursor()
 
         # Drop temporary running loding table or Not (Default) 
-        self.not_drop_running_loading_table = p_optional_args.get(EXPLOIT_ARG_NOT_DROP_TEMP_RUNNING_LOADING_TABLE, True)
+        self.not_drop_running_loading_table = p_optional_args.get(OPTION_ARG_NOT_DROP_TEMP_RUNNING_LOADING_TABLE, True)
 
         # Create running/temporary List Datasource loading table.
         # Insert list of tables to import
@@ -293,21 +293,21 @@ class BronzeExploit:
         if self.verbose:
             self.verbose.log(datetime.now(tz=timezone.utc), "EXPLOIT", "START", log_message=v_message)
             
-        if p_optional_args.get(EXPLOIT_ARG_LOADING_TABLE, None):
-            self.batch_loading_table = p_optional_args[EXPLOIT_ARG_LOADING_TABLE]
+        if p_optional_args.get(OPTION_ARG_LOADING_TABLE, None):
+            self.batch_loading_table = p_optional_args[OPTION_ARG_LOADING_TABLE]
         else:    
             self.batch_loading_table = self.exploit_loading_table
         
-        v_log_table = p_optional_args.get(EXPLOIT_ARG_LOG_TABLE, None)
+        v_log_table = p_optional_args.get(OPTION_ARG_LOG_TABLE, None)
         v_interval_start = ''
         v_interval_end = ''
         
-        if p_optional_args.get(EXPLOIT_ARG_RELOAD_ON_ERROR_INTERVAL, None) :
-            v_interval_start = p_optional_args[EXPLOIT_ARG_RELOAD_ON_ERROR_INTERVAL][0].strftime("%Y-%m-%d %H:%M:%S")
+        if p_optional_args.get(OPTION_ARG_RELOAD_ON_ERROR_INTERVAL, None) :
+            v_interval_start = p_optional_args[OPTION_ARG_RELOAD_ON_ERROR_INTERVAL][0].strftime("%Y-%m-%d %H:%M:%S")
             
             # If end date of intervant not provided, then take Now date
             try:
-                v_interval_end = p_optional_args[EXPLOIT_ARG_RELOAD_ON_ERROR_INTERVAL][1].strftime("%Y-%m-%d %H:%M:%S")
+                v_interval_end = p_optional_args[OPTION_ARG_RELOAD_ON_ERROR_INTERVAL][1].strftime("%Y-%m-%d %H:%M:%S")
             except IndexError:
                 v_interval_end = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -343,9 +343,9 @@ class BronzeExploit:
         v_df_exploit_datasource.columns = [x[0] for x in v_cursor.description]
         
         # Test if query set to filter data sources
-        v_query = p_optional_args.get(EXPLOIT_ARG_QUERY, None)
+        v_query = p_optional_args.get(OPTION_ARG_QUERY, None)
         
-        if p_optional_args.get(EXPLOIT_ARG_QUERY, None) :
+        if p_optional_args.get(OPTION_ARG_QUERY, None) :
             self.df_exploit_datasource_loading = create_filter_mask(v_df_exploit_datasource, v_query)
             
             if self.df_exploit_datasource_loading is None:
@@ -469,7 +469,7 @@ class BronzeExploit:
         return (self.exploit_loading_table, self.exploit_running_loading_table)
 
 
-    def update_exploit(self, p_dict_column_name_value, p_source:SourceProperties=None, p_bronze_table_name:str=None):
+    def update_exploit(self, p_dict_column_name_value, p_source:SourceProperties=None, p_bronze_table_name:str=None,p_simulate=False):
         '''Update exploit table with column and values provided into p_dict_column_name_value {'column1':value1,'column2':value2....}
         update is done on Source : Database name, schema, table
         '''
@@ -501,20 +501,21 @@ class BronzeExploit:
             v_request = v_request + v_set + " WHERE "+ v_join
             
             # Update last date or creation date (depends on table)
-            message = "Updating request : {} Bind Values :  {}".format(v_request, v_bindvars)
+            message = "Updating request : {} Bind Values :  {}, Simulate {}".format(v_request, v_bindvars,p_simulate)
             
             if self.verbose:
                 self.verbose.log(datetime.now(tz=timezone.utc), "SET_LASTUPDATE", "START", log_message=message,
                             log_request=v_request)
-    
-            v_cursor.execute(v_request, v_bindvars)
+
+            if not p_simulate:
+                v_cursor.execute(v_request, v_bindvars)
             self.get_db_connection().commit()
             v_cursor.close()
     
             return True
         
         except oracledb.Error as v_err:
-            v_error = "ERROR {} with values {}".format(v_request, v_bindvars)
+            v_error = "ERROR {} with values {}, Simulate {}".format(v_request, v_bindvars,p_simulate)
             
             if self.verbose:
                 self.verbose.log(datetime.now(tz=timezone.utc), "UPDATE_EXPLOIT", v_error, log_message='Oracle DB error : {}'.format(str(v_err)))
@@ -525,7 +526,7 @@ class BronzeExploit:
         
         except Exception as v_err:
     
-            v_error = "ERROR {} with values {}".format(v_request, v_bindvars)
+            v_error = "ERROR {} with values {}, Simulate {}".format(v_request, v_bindvars,p_simulate)
     
             if self.verbose:
                 self.verbose.log(datetime.now(tz=timezone.utc), "UPDATE_EXPLOIT", v_error, str(v_err))
@@ -541,8 +542,14 @@ class BronzeExploit:
 
 
 class BronzeDbManager:
+        pass
+
+class BronzeDbManager:
     '''Object to manage connection to bronze database
     Provide main functions to manage Bronze DB activities
+    '''
+    ''' Bronzefcatyre is used to clone table
+    Need to generate a new bronze table 
     '''
     bronzefactory = None
 
@@ -1328,6 +1335,7 @@ class BronzeDbManager:
             v_bronze_config_dest = p_bronze_db_manager_dest.get_bronze_config()
             v_bronze_exploit_dest = p_bronze_db_manager_dest.get_bronze_exploit()
             v_bronze_logger_dest = p_bronze_db_manager_dest.get_bronze_logger()
+            ''' create Bronzefactory object is not already instanciated ( global class variable) '''
             if not self.bronzefactory:
                 self.bronzefactory = ci_lh2_bronze_factory.NLSDataBronzeFactory(v_bronze_config_dest.get_options().mapping_bronze_class)
 
@@ -1341,24 +1349,31 @@ class BronzeDbManager:
                 ''' Generate destination bronze tables by copying parquet list '''
                 '''
                     Get source tables information from destination exploit datasource loading table
-                    Create Bronze_source associated to the destination table (Table source information must exist into exploit datasource loading table
+                    Create Bronze_builder associated to the destination table (Table source information must exist into exploit datasource loading table
                 '''
                 v_bronze_exploit_dest = p_bronze_db_manager_dest.get_bronze_exploit()
                 v_datasource_loading = v_bronze_exploit_dest[p_table_name]
                 v_bronze_builder = self.bronzefactory.create_instance(v_datasource_loading.type, v_datasource_loading, v_bronze_config_dest, p_bronze_db_manager_dest, v_bronze_logger_dest)
-
+                ''' Create Generator to build destination bronze table based'''
+                v_bronze_plant_dest = BronzeGenerator(v_bronze_builder, v_bronze_exploit_dest, v_bronze_logger_dest)
                 ''' 
                     Create Bronze Generator
                     Generate Bronze table by cloning parquets files
                 '''
-                v_bronze_plant = BronzeGenerator(v_bronze_builder, v_bronze_exploit_dest, v_bronze_logger_dest)
-                v_bucket_name = v_row['BUCKET']
-                v_parquet_list = v_row['LIST_PARQUETS']
-                v_result = self.__delete_parquet_files__(p_bucket_name=v_bucket_name, p_parquet_list=v_parquet_list,
+                ''' Get list of parquet files to clone from source'''
+                v_parquet_list_src = v_row['LIST_PARQUETS']
+                ''' Create connection to source bucket'''
+                v_bucket_name_src = v_row['BUCKET']
+                v_bronze_bucket_proxy_src = BronzeBucketProxy(self.get_environment(), self.bronzeDb_Manager_config)
+                v_bronze_bucket_proxy_src.set_bucket_by_name(v_bucket_name_src)
+                v_bucket_src: AbsBucket = v_bronze_bucket_proxy_dest.get_bucket()
+
+                ''' Generate Bronze table into destination '''
+                v_result = v_bronze_plant_dest.generate_by_cloning_parquets(p_bucket_src=v_bucket_src, p_parquet_list_src=v_parquet_lis_src,
                                                          p_simulate=p_simulate, p_verbose=p_verbose)
 
                 if not v_result:
-                    raise Exception("ERROR  Deleting parquet files into bucket {}".format(v_bucket_name))
+                    raise Exception("ERROR  Cloning table {} to {}".format(p_table_name,p_bronze_db_manager_dest.get_db_username()))
 
 
             v_log_message = "COMPLETED - " + v_request
@@ -1368,7 +1383,7 @@ class BronzeDbManager:
 
         except Exception as err:
             v_err = err
-            v_action = "ERROR - Drop table {}.{} and associated parquet files".format(self.get_db_username(),
+            v_action = "ERROR - Cloning table {}.{} and associated parquet files".format(self.get_db_username(),
                                                                                       p_table_name)
             v_log_message = str(v_err)
             v_return = False
@@ -1465,7 +1480,7 @@ class BronzeDbManager:
             
         except Exception as err:
             v_err = err
-            v_action = "ERROR - Drop table - Drop tables on query {} : \n{}".format(p_query, v_table_list_to_drop)
+            v_action = "ERROR - Drop table on query {} : \n{}".format(p_query, v_table_list_to_drop)
             v_log_message = str(v_err)
             v_return = False
 
@@ -1480,7 +1495,7 @@ class BronzeDbManager:
 
             return v_return
 
-    def bronze_clone_tables_parquets_by_query(self, p_query: str, p_bronze_exploit_src:BronzeExploit, p_bronze_exploit_dest: BronzeExploit, p_bronzedb_manager_dest : BronzeDbManager, p_simulate=False,
+    def bronze_clone_tables_parquets_by_query(self, p_query: str, p_bronzedb_manager_dest : BronzeDbManager, p_simulate=False,
                                               p_ask_to_clone=True, p_verbose=None):
         '''Clone bronze tables
         list of tables return by query on dataframe df_lh2_tables_stats
@@ -1519,10 +1534,8 @@ class BronzeDbManager:
             for _, v_row in v_filtered_df_lh2_bronze_tables.iterrows():
                 v_table_data = v_row.to_dict()
                 v_table_name = v_table_data['TABLE_NAME']
-                ''' First Drop destination bronze table '''
-                v_drop_result = self.bronze_drop_table(p_table_name=v_table_name, p_bronze_exploit=p_bronze_exploit,
-                                                       p_simulate=p_simulate, p_verbose=p_verbose)
-                ''' Copy parquets file from Source Bronze to Destination Bronze '''
+                ''' Clone bronze table to destination '''
+                v_clone_result= self.bronze_clone_table(p_table_name=v_table_name,p_bronze_db_manager_dest=p_bronzedb_manager_dest,p_simulate=p_simulate,p_verbose=p_verbose)
 
             v_request = "Clone tables on query {} : \n{}".format(p_query, v_table_list_to_clone)
             v_log_message = "COMPLETED - " + v_request
@@ -1532,7 +1545,7 @@ class BronzeDbManager:
 
         except Exception as err:
             v_err = err
-            v_action = "ERROR - Drop table - Drop tables on query {} : \n{}".format(p_query, v_table_list_to_clone)
+            v_action = "ERROR - Cloning tables on query {} : \n{}".format(p_query, v_table_list_to_clone)
             v_log_message = str(v_err)
             v_return = False
 
@@ -2071,7 +2084,7 @@ class BronzeSourceBuilder:
             self.request = self.request + " " + self.where 
 
 
-    def __sync_bronze_table__(self, verbose=None):
+    def __sync_bronze_table__(self, p_simulate=False,p_verbose=None):
         '''Sync bronze table method'''
 
         table = self.bronze_table
@@ -2084,11 +2097,12 @@ class BronzeSourceBuilder:
             request = 'BEGIN DBMS_CLOUD.SYNC_EXTERNAL_PART_TABLE(table_name =>\'' + table + '\'); END;'
 
             # Execute a PL/SQL to synchronize Oracle partionned external table
-            if verbose:
+            if p_verbose:
                 message = "Synchronizing external partionned table {}".format(table)
-                verbose.log(datetime.now(tz=timezone.utc), "UPDATE_TABLE", "SYNC", log_message=message)
+                p_verbose.log(datetime.now(tz=timezone.utc), "UPDATE_TABLE", "SYNC", log_message=message)
             
-            cursor.execute(request)
+            if not p_simulate:
+                cursor.execute(request)
             cursor.close()
             
             return True
@@ -2096,8 +2110,8 @@ class BronzeSourceBuilder:
         except oracledb.Error as err:
             vError = "ERROR Synchronizing table {}".format(table)
             
-            if verbose:
-                verbose.log(datetime.now(tz=timezone.utc), "SYNC_TABLE", vError, log_message='Oracle DB error :{}'.format(str(err)))
+            if p_verbose:
+                p_verbose.log(datetime.now(tz=timezone.utc), "SYNC_TABLE", vError, log_message='Oracle DB error :{}'.format(str(err)))
             self.logger.log(pError=err, pAction=vError)
             
             return False
@@ -2105,14 +2119,14 @@ class BronzeSourceBuilder:
         except Exception as err:
             vError = "ERROR Synchronizing table {}".format(table)
             
-            if verbose:
-                verbose.log(datetime.now(tz=timezone.utc), "SYNC_TABLE", vError, log_message=str(err))
+            if p_verbose:
+                p_verbose.log(datetime.now(tz=timezone.utc), "SYNC_TABLE", vError, log_message=str(err))
             self.logger.log(pError=err, pAction=vError)
             
             return False
 
 
-    def __create_bronze_table__(self, verbose=None):
+    def __create_bronze_table__(self, p_simulate=False,p_verbose=None):
         '''Create Bronze table method'''
     
         vTable = self.bronze_table
@@ -2126,16 +2140,16 @@ class BronzeSourceBuilder:
             # Dropping table before recreating
             #drop = 'BEGIN EXECUTE IMMEDIATE \'DROP TABLE ' + vTable + '\'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;'
             
-            if verbose:
+            if p_verbose:
                 message = "Dropping table {}.{} ".format(self.get_bronzedb_manager().get_db_username(),vTable)
-                verbose.log(datetime.now(tz=timezone.utc), "DROP_TABLE", "START", log_message=message)
-            
-            #cursor.execute(drop)
-            
-            vResult_run_proc = self.get_bronzedb_manager().run_proc('LH2_BRONZE_ADMIN_PKG.DROP_TABLE_PROC', *[vTable,self.bronze_config.get_options().bronze_bis_suffixe], p_verbose=verbose, p_proc_exe_context=vTable)
-            
-            if not vResult_run_proc:
-                raise Exception("ERROR dropping table {}".format(vTable))
+                p_verbose.log(datetime.now(tz=timezone.utc), "DROP_TABLE", "START", log_message=message)
+
+            if not p_simulate:
+                ''' Drop existing table by calling Database procedure'''
+                vResult_run_proc = self.get_bronzedb_manager().run_proc('LH2_BRONZE_ADMIN_PKG.DROP_TABLE_PROC', *[vTable,self.bronze_config.get_options().bronze_bis_suffixe], p_verbose=p_verbose, p_proc_exe_context=vTable)
+
+                if not vResult_run_proc:
+                    raise Exception("ERROR dropping table {}".format(vTable))
             
             # Create external part table parsing parquet files from bucket root (for incremental mode)
             if self.isexternalpartionedtable():
@@ -2151,21 +2165,23 @@ class BronzeSourceBuilder:
                 root_path = self.bucket_file_path
                 create = 'BEGIN DBMS_CLOUD.CREATE_EXTERNAL_TABLE(table_name =>\'' + vTable + '\',credential_name =>\'' + self.bronze_bucket_proxy.get_oci_adw_credential() + '\', file_uri_list =>\'' + self.bronze_bucket_proxy.get_oci_objectstorage_url() + self.bronze_bucket_proxy.get_bucket_name() + '/o/' + root_path + self.parquet_file_name_template + '.parquet\', format => \'{"type":"parquet", "schema": "first"}\'); END;'
             
-            if verbose:
+            if p_verbose:
                 message = "Creating table {} : {}".format(vTable,create)
-                verbose.log(datetime.now(tz=timezone.utc), "CREATE_TABLE", "START", log_message=message)
+                p_verbose.log(datetime.now(tz=timezone.utc), "CREATE_TABLE", "START", log_message=message)
         
-            cursor.execute(create)
+            if not p_simulate:
+                cursor.execute(create)
            
-            # Alter column type from BINARY_DOUBLE to NUMBER
-            if verbose:
+            '''Alter column type from BINARY_DOUBLE to NUMBER'''
+            if p_verbose:
                 message = "Altering table columns type {}.{}".format(self.get_bronzedb_manager().get_db_username(), vTable)
-                verbose.log(datetime.now(tz=timezone.utc), "ALTER_TABLE", "START", log_message=message)
+                p_verbose.log(datetime.now(tz=timezone.utc), "ALTER_TABLE", "START", log_message=message)
             
-            vResult_run_proc = self.get_bronzedb_manager().run_proc('LH2_BRONZE_ADMIN_PKG.ALTER_TABLE_COLUMN_TYPE_PROC', *[vTable, 'BINARY_DOUBLE', 'NUMBER(38,10)'], p_verbose=verbose, p_proc_exe_context=vTable)
-            
-            if not vResult_run_proc:
-                raise Exception("ERROR altering table columns type {}.{}".format(self.get_bronzedb_manager().get_db_username(), vTable))
+            if not p_simulate:
+                vResult_run_proc = self.get_bronzedb_manager().run_proc('LH2_BRONZE_ADMIN_PKG.ALTER_TABLE_COLUMN_TYPE_PROC', *[vTable, 'BINARY_DOUBLE', 'NUMBER(38,10)'], p_verbose=p_verbose, p_proc_exe_context=vTable)
+
+                if not vResult_run_proc:
+                    raise Exception("ERROR altering table columns type {}.{}".format(self.get_bronzedb_manager().get_db_username(), vTable))
             
             cursor.close()
             
@@ -2174,8 +2190,8 @@ class BronzeSourceBuilder:
         except oracledb.Error as err:
             vError= "ERROR Creating table {}".format(vTable)
             
-            if verbose:
-                verbose.log(datetime.now(tz=timezone.utc), "CREATE_TABLE", vError, log_message='Oracle DB error : {}'.format(str(err)))
+            if p_verbose:
+                p_verbose.log(datetime.now(tz=timezone.utc), "CREATE_TABLE", vError, log_message='Oracle DB error : {}'.format(str(err)))
             
             self.logger.log(pError=err, pAction=vError)
             
@@ -2184,15 +2200,15 @@ class BronzeSourceBuilder:
         except Exception as err:
             vError = "ERROR Creating table {}".format(vTable)
             
-            if verbose:
-                verbose.log(datetime.now(tz=timezone.utc), "CREATE_TABLE", vError, log_message=str(err))
+            if p_verbose:
+                p_verbose.log(datetime.now(tz=timezone.utc), "CREATE_TABLE", vError, log_message=str(err))
             
             self.logger.log(pError=err, pAction=vError)
             
             return False
 
     
-    def send_parquet_files_to_oci(self, verbose=None):
+    def send_parquet_files_to_oci(self, p_simulate=False,p_verbose=None):
         '''Send parquet files to OCI method'''
 
         self.upload_parquets_start = datetime.now()
@@ -2201,8 +2217,8 @@ class BronzeSourceBuilder:
         if not self.parquet_file_list:
             vError = "WARNING, No parquet files to upload"
             
-            if verbose:
-                verbose.log(datetime.now(tz=timezone.utc), "UPLOAD_PARQUET", vError, log_message="")
+            if p_verbose:
+                p_verbose.log(datetime.now(tz=timezone.utc), "UPLOAD_PARQUET", vError, log_message="")
            
             self.logger.log(pError=Exception(vError), pAction=vError)
             self.set_bronze_status('parquet_sent')
@@ -2223,7 +2239,7 @@ class BronzeSourceBuilder:
             # Use 2nd alternative to merge parquet file based on same root names - based on duckdb
             duckdb_db = DBFACTORY.create_instance(self.bronze_config.get_duckdb_settings().dbwrapper, self.bronze_config.get_configuration_file())
             duckdb_db_connection = duckdb_db.create_db_connection(self.bronze_config.get_duckdb_settings())
-            merge_template_parquet_files(os.path.splitext(merged_parquet_file)[0], duckdb_db_connection, True, verbose)
+            merge_template_parquet_files(os.path.splitext(merged_parquet_file)[0], duckdb_db_connection, True, p_verbose)
 
             self.parquet_file_list_tosend = [{"source_file":merged_parquet_file,"file_name":merged_parquet_file_name}]
         else:
@@ -2237,8 +2253,8 @@ class BronzeSourceBuilder:
             self.__update_sent_parquets_stats()
             vError = "ERROR create access to bucket {0}".format(self.bronze_bucket_proxy.get_bucket_name())
             
-            if verbose:
-                verbose.log(datetime.now(tz=timezone.utc), "BUCKET_ACCESS", vError, log_message=str(err))
+            if p_verbose:
+                p_verbose.log(datetime.now(tz=timezone.utc), "BUCKET_ACCESS", vError, log_message=str(err))
             
             self.logger.log(pError=err, pAction=vError)
             
@@ -2252,18 +2268,19 @@ class BronzeSourceBuilder:
 
                 message = "Uploading parquet from {0} into bucket {1}, {2}".format(source_file, self.bronze_bucket_proxy.get_bucket_name(), bucket_file_name)
                 
-                if verbose:
-                    verbose.log(datetime.now(tz=timezone.utc),"UPLOAD_PARQUET", "START", log_message=message)
+                if p_verbose:
+                    p_verbose.log(datetime.now(tz=timezone.utc), "UPLOAD_PARQUET", "START", log_message=message)
                 
-                bucket.put_file(bucket_file_name, source_file)
+                if not p_simulate:
+                    bucket.put_file(bucket_file_name, source_file)
                 self.bucket_list_parquet_files_sent.append(bucket_file_name)
     
         except Exception as err:
             self.__update_sent_parquets_stats()
             vError = "ERROR Uplaoding parquet file {0} into bucket {1}, {2}".format(source_file, self.bronze_bucket_proxy.get_bucket_name(), bucket_file_name)
             
-            if verbose:
-                verbose.log(datetime.now(tz=timezone.utc), "UPLOAD_PARQUET", vError, log_message=str(err))
+            if p_verbose:
+                p_verbose.log(datetime.now(tz=timezone.utc), "UPLOAD_PARQUET", vError, log_message=str(err))
             
             self.logger.log(pError=err, pAction=vError)
             
@@ -2274,7 +2291,7 @@ class BronzeSourceBuilder:
 
         return True
 
-    def copy_parquet_files_to_oci(self, p_bucket_src:str, p_verbose=None):
+    def copy_parquet_files_to_oci(self, p_bucket_src:str, p_simulate=False,p_verbose=None):
         '''copy parquet files to OCI method'''
 
         self.upload_parquets_start = datetime.now()
@@ -2312,7 +2329,8 @@ class BronzeSourceBuilder:
                 if p_verbose:
                     p_verbose.log(datetime.now(tz=timezone.utc), "COPY_PARQUET", "START", log_message=message)
 
-                p_bucket_src.copy_object(v_parquet_src,v_bucket_dest)
+                if not p_simulate:
+                    p_bucket_src.copy_object(v_parquet_src,v_bucket_dest)
                 self.bucket_list_parquet_files_sent.append(v_parquet_src)
 
         except Exception as err:
@@ -2332,31 +2350,31 @@ class BronzeSourceBuilder:
 
         return True
 
-    def update_bronze_schema(self, verbose):
+    def update_bronze_schema(self, p_simulate=False,p_verbose=None):
         '''Update Bronze schema method'''
     
         try:
             message = "Update Bronze schema {} : External Partioned Table {}".format(self.bronze_table, bool(self.isexternalpartionedtable()))
            
-            if verbose:
-                verbose.log(datetime.now(tz=timezone.utc), "UPADATE_BRONZE", "START", log_message=message)
+            if p_verbose:
+                p_verbose.log(datetime.now(tz=timezone.utc), "UPADATE_BRONZE", "START", log_message=message)
             
             if not self.parquet_file_list:
                 message = "No parquet files No update of Bronze needed"
                 
-                if verbose:
-                    verbose.log(datetime.now(tz=timezone.utc), "UPADATE_BRONZE", "END", log_message=message)
+                if p_verbose:
+                    p_verbose.log(datetime.now(tz=timezone.utc), "UPADATE_BRONZE", "END", log_message=message)
                 res = True
     
             elif self.isexternalpartionedtable() and self.get_bronzedb_manager().is_table_exists(self.bronze_table):
                 # If incremental mode, if table exists, update (synchronize) external part table
-                res = self.__sync_bronze_table__(verbose)
+                res = self.__sync_bronze_table__(p_simulate=p_simulate,p_verbose=p_verbose)
 
             else:
                 # If incremental mode,if table not exists,
                 # Create external part table linked to "parquet_file_name_template"xxx.parquets files from bucket root
                 # If no incremental mode, drop existing table and recreate table linked to uploaded parquet file
-                res = self.__create_bronze_table__(verbose)
+                res = self.__create_bronze_table__(p_simulate=p_simulate,p_verbose=p_verbose)
             
             if res:
                 self.set_bronze_status('bronze_updated')
@@ -2366,8 +2384,8 @@ class BronzeSourceBuilder:
         except Exception as err:
             vError = "ERROR Updating bronze schema, table : {}".format(self.bronze_table)
             
-            if verbose:
-                verbose.log(datetime.now(tz=timezone.utc), "UPDATE_BRONZE_SCHEMA", vError, log_message=str(err))
+            if p_verbose:
+                p_verbose.log(datetime.now(tz=timezone.utc), "UPDATE_BRONZE_SCHEMA", vError, log_message=str(err))
             self.logger.log(pError=err, pAction=vError)
             
             return False
@@ -2411,7 +2429,7 @@ class BronzeGenerator:
         self.v_logger = pLogger
 
 
-    def generate(self, p_verbose=None):
+    def generate(self, p_simulate=False,p_verbose=None):
         '''Generate method'''
 
         while True:
@@ -2423,35 +2441,35 @@ class BronzeGenerator:
             self.v_bronzesourcebuilder.pre_fetch_source(p_verbose)
            
             # Update exploit table with status of generator
-            v_dict_update_exploit['bronze_status'] = self.v_bronzesourcebuilder.get_bronze_status() 
-            
-            if not self.v_bronzeexploit.update_exploit(v_dict_update_exploit, p_source=v_sourceProperties):
+            v_dict_update_exploit['bronze_status'] = self.v_bronzesourcebuilder.get_bronze_status()
+            if not self.v_bronzeexploit.update_exploit(v_dict_update_exploit, p_source=v_sourceProperties,p_simulate=p_simulate):
                 break
             
             if not self.v_bronzesourcebuilder.fetch_and_process(p_verbose):
                 break
     
             # Update exploit table with status of generator
-            v_dict_update_exploit['bronze_status'] = self.v_bronzesourcebuilder.get_bronze_status() 
+
+            v_dict_update_exploit['bronze_status'] = self.v_bronzesourcebuilder.get_bronze_status()
             
-            if not self.v_bronzeexploit.update_exploit(v_dict_update_exploit, p_source=v_sourceProperties):
+            if not self.v_bronzeexploit.update_exploit(v_dict_update_exploit, p_source=v_sourceProperties,p_simulate=p_simulate):
                 break
             
             # 2 Upload parquets files to bucket
-            if not self.v_bronzesourcebuilder.send_parquet_files_to_oci(p_verbose):
+            if not self.v_bronzesourcebuilder.send_parquet_files_to_oci(p_verbose=p_verbose,p_simulate=p_simulate):
                 break
             v_dict_update_exploit['bronze_status'] = self.v_bronzesourcebuilder.get_bronze_status() 
             
-            if not self.v_bronzeexploit.update_exploit(v_dict_update_exploit, p_source=v_sourceProperties):
+            if not self.v_bronzeexploit.update_exploit(v_dict_update_exploit, p_source=v_sourceProperties,p_simulate=p_simulate):
                 break
             
             # 3 - Create/Update external table into Autonomous
-            if not self.v_bronzesourcebuilder.update_bronze_schema(p_verbose):
+            if not self.v_bronzesourcebuilder.update_bronze_schema(p_simulate=p_simulate,p_verbose=p_verbose):
                 break
             
             v_dict_update_exploit['bronze_status'] = self.v_bronzesourcebuilder.get_bronze_status() 
             
-            if not self.v_bronzeexploit.update_exploit(v_dict_update_exploit, p_source=v_sourceProperties):
+            if not self.v_bronzeexploit.update_exploit(v_dict_update_exploit, p_source=v_sourceProperties,p_simulate=p_simulate):
                 break
             
             # 4 Update "last parquet file uploaded", source table index columns, "Last_update" for incremental table integration
@@ -2490,12 +2508,12 @@ class BronzeGenerator:
             self.v_bronzesourcebuilder.set_bronze_status('completed')
             v_dict_update_exploit['bronze_status'] = self.v_bronzesourcebuilder.get_bronze_status()
             
-            if not self.v_bronzeexploit.update_exploit(v_dict_update_exploit, p_source=v_sourceProperties):
+            if not self.v_bronzeexploit.update_exploit(v_dict_update_exploit, p_source=v_sourceProperties,p_simulate=p_simulate):
                 break
             
             # Run Post integration PLSQL procedure for current source
             v_post_proc_param = self.v_bronzesourcebuilder.get_post_procedure_parameters()
-            if v_post_proc_param:
+            if v_post_proc_param and not p_simulate:
                 v_bronze_table = self.v_bronzesourcebuilder.get_bronze_properties().table
                 v_result_post_proc = self.v_bronzesourcebuilder.get_bronzedb_manager().run_proc(v_post_proc_param[0], *v_post_proc_param[1], p_verbose=p_verbose, p_proc_exe_context=v_bronze_table)
                 
@@ -2520,7 +2538,7 @@ class BronzeGenerator:
 
         return v_generate_result
 
-    def generate_by_cloning_parquets(self, p_bucket_src:AbsBucket,p_parquet_list_src,p_verbose=None):
+    def generate_by_cloning_parquets(self, p_bucket_src:AbsBucket,p_parquet_list_src,p_simulate=False,p_verbose=None):
         '''genrate_by_cloning_parquets method'''
         ''' generate external table by cloning parquet files from a bucket'''
 
@@ -2533,23 +2551,23 @@ class BronzeGenerator:
             self.v_bronzesourcebuilder.set_bronze_status('copying_parquets')
             # Update exploit table with status of generator
             v_dict_update_exploit['bronze_status'] = self.v_bronzesourcebuilder.get_bronze_status()
-            if not self.v_bronzeexploit.update_exploit(v_dict_update_exploit, p_source=v_sourceProperties):
+            if not self.v_bronzeexploit.update_exploit(v_dict_update_exploit, p_source=v_sourceProperties,p_simulate=p_simulate):
                 break
 
             self.v_bronzesourcebuilder.set_parquet_file_list(p_parquet_list_src)
-            self.v_bronzesourcebuilder.copy_parquet_files_to_oci(p_bucket_src=p_bucket_src,p_verbose=p_verbose)
+            self.v_bronzesourcebuilder.copy_parquet_files_to_oci(p_bucket_src=p_bucket_src,p_simulate=p_simulate,p_verbose=p_verbose)
 
             # Update exploit table with status of generator
             v_dict_update_exploit['bronze_status'] = self.v_bronzesourcebuilder.get_bronze_status()
-            if not self.v_bronzeexploit.update_exploit(v_dict_update_exploit, p_source=v_sourceProperties):
+            if not self.v_bronzeexploit.update_exploit(v_dict_update_exploit, p_source=v_sourceProperties,p_simulate=p_simulate):
                 break
 
             # 4 - Create/Update external table into Autonomous
-            if not self.v_bronzesourcebuilder.update_bronze_schema(p_verbose):
+            if not self.v_bronzesourcebuilder.update_bronze_schema(p_verbose=p_verbose,p_simulate=p_simulate):
                 break
 
             v_dict_update_exploit['bronze_status'] = self.v_bronzesourcebuilder.get_bronze_status()
-            if not self.v_bronzeexploit.update_exploit(v_dict_update_exploit, p_source=v_sourceProperties):
+            if not self.v_bronzeexploit.update_exploit(v_dict_update_exploit, p_source=v_sourceProperties,p_simulate=p_simulate):
                 break
 
             # 4 Update "last parquet file uploaded", source table index columns, "Last_update" for incremental table integration
@@ -2590,12 +2608,12 @@ class BronzeGenerator:
             self.v_bronzesourcebuilder.set_bronze_status('completed')
             v_dict_update_exploit['bronze_status'] = self.v_bronzesourcebuilder.get_bronze_status()
 
-            if not self.v_bronzeexploit.update_exploit(v_dict_update_exploit, p_source=v_sourceProperties):
+            if not self.v_bronzeexploit.update_exploit(v_dict_update_exploit, p_source=v_sourceProperties,p_simulate=p_simulate):
                 break
 
             # Run Post integration PLSQL procedure for current source
             v_post_proc_param = self.v_bronzesourcebuilder.get_post_procedure_parameters()
-            if v_post_proc_param:
+            if v_post_proc_param and not p_simulate:
                 v_bronze_table = self.v_bronzesourcebuilder.get_bronze_properties().table
                 v_result_post_proc = self.v_bronzesourcebuilder.get_bronzedb_manager().run_proc(v_post_proc_param[0],
                                                                                                 *v_post_proc_param[1],
