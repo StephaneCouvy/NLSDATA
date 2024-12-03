@@ -542,7 +542,8 @@ class BronzeExploit:
 
 
 class BronzeDbManager:
-        pass
+    ''' Declare class BronzeDbManager because some methods have arguments of type BronzeDbManager (Circular declaration)'''
+    pass
 
 class BronzeDbManager:
     '''Object to manage connection to bronze database
@@ -1034,8 +1035,13 @@ class BronzeDbManager:
     
             if p_verbose:
                 p_verbose.log(datetime.now(tz=timezone.utc), "EXPORT_BRONZE_STATS", "START", log_message=v_log_message)
-        
+
+            '''
+                Converts all list elements in the DataFrame to strings with default delimiter , 
+                used for list of parquets files
+            '''
             v_df_converted_lists_to_strings = df_convert_lists_to_strings(self.get_lh2_bronze_tables_stats())
+            ''' Export Dataframe to local excel file'''
             v_df_converted_lists_to_strings.to_excel(v_excel_file_tmp, index=False)
             
             # Copy generated Excel to filestorage
@@ -1044,7 +1050,7 @@ class BronzeDbManager:
             if p_verbose:
                 p_verbose.log(datetime.now(tz=timezone.utc), "EXPORT_BRONZE_STATS", "RUNNING", log_message=v_log_message)
         
-            v_destination_excel_file = v_filestorage.put_file(p_excel_filename, -v_excel_file_tmp)
+            v_destination_excel_file = v_filestorage.put_file(p_excel_filename, v_excel_file_tmp)
             os.remove(v_excel_file_tmp)
             
             v_request = "Export Excel file {} :".format(v_destination_excel_file)
