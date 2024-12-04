@@ -1409,7 +1409,7 @@ class BronzeDbManager:
 
             return v_return
 
-    def __get_df_bronze_tables_by_query(self, p_query: str, p_verbose=None):
+    def __get_df_bronze_tables_by_query__(self, p_query: str, p_verbose=None):
         ''' get list of bronze tables
         list of tables return by query on dataframe df_lh2_tables_stats
         Does not include 'zombies'
@@ -1453,7 +1453,7 @@ class BronzeDbManager:
             if not self.bronze_exploit:
                 raise Exception("Exploit object not associated to BronzeDbManager Object")
 
-            v_filtered_df_lh2_bronze_tables = self.__get_list_bronze_tables_by_query(p_query=p_query,p_verbose=p_verbose)
+            v_filtered_df_lh2_bronze_tables = self.__get_df_bronze_tables_by_query__(p_query=p_query,p_verbose=p_verbose)
             v_table_list_to_drop = v_filtered_df_lh2_bronze_tables['TABLE_NAME'].tolist()
 
             if p_verbose:
@@ -1518,7 +1518,7 @@ class BronzeDbManager:
             if p_verbose:
                 p_verbose.log(datetime.now(tz=timezone.utc), "CLONE_TABLES_QUERY", "START", log_message=v_log_message)
 
-            v_filtered_df_lh2_bronze_tables = self.__get_list_bronze_tables_by_query(p_query=p_query,
+            v_filtered_df_lh2_bronze_tables = self.__get_df_bronze_tables_by_query__(p_query=p_query,
                                                                                      p_verbose=p_verbose)
             v_table_list_to_clone = v_filtered_df_lh2_bronze_tables['TABLE_NAME'].tolist()
 
