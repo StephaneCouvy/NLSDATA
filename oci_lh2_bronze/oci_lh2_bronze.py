@@ -1264,12 +1264,12 @@ class BronzeDbManager:
 
                     if p_verbose:
                         v_log_message = "Update Exploit loading table {} , reset {} - Simulate = {}".format(
-                            v_table_name, v_dict_update_exploit, str(p_simulate))
+                            p_table_name, v_dict_update_exploit, str(p_simulate))
                         p_verbose.log(datetime.now(tz=timezone.utc), "DROP_TABLES_QUERY", "RUNNING",
                                       log_message=v_log_message)
 
                     if not p_simulate:
-                        if not self.bronze_exploit.update_exploit(v_dict_update_exploit, p_bronze_table_name=v_table_name):
+                        if not self.bronze_exploit.update_exploit(v_dict_update_exploit, p_bronze_table_name=p_table_name):
                             raise Exception(
                                 "ERROR - Update Exploit table {} : {}".format(v_table_name, v_dict_update_exploit))
 
