@@ -1916,7 +1916,11 @@ class BronzeSourceBuilder:
         ''' from list of parquet files, set variable parquet_file_list with format
            format list : [{"file_name":parquet_file_name1,"source_file":parquet_file_name1},{"file_name":parquet_file_name2,"source_file":parquet_file_name2},...]
         '''
-        self.parquet_file_list = [{"file_name":parquet_file_name,"source_file":parquet_file_name} for parquet_file_name in p_parquet_list]
+        if not p_parquet_list:
+            self.parquet_file_list = [{"file_name":parquet_file_name,"source_file":parquet_file_name} for parquet_file_name in p_parquet_list]
+
+            ''' Define Bucket file path according last parquet file of list'''
+            self.bucket_file_path = self.parquet_file_list[-1].rsplit('/', 1)[0]+'/'
 
     def set_bronze_date_lastupdate(self,p_bronze_date_lastupdate):
         ''' Set Date_lastupdated '''
