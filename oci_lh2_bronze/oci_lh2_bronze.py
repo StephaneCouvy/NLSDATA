@@ -1356,6 +1356,7 @@ class BronzeDbManager:
             v_bronze_config_dest = p_bronze_db_manager_dest.get_bronze_config()
             v_bronze_exploit_dest = p_bronze_db_manager_dest.get_bronze_exploit()
             v_bronze_logger_dest = p_bronze_db_manager_dest.get_bronze_logger()
+            v_bronze_exploit_src = self.get_bronze_exploit()
 
             ''' Test if Bronzefactory object is not already instanciated ( global class variable) '''
             if not BronzeDbManager.bronzefactory:
@@ -1377,6 +1378,13 @@ class BronzeDbManager:
                 v_bronze_exploit_dest = p_bronze_db_manager_dest.get_bronze_exploit()
                 v_datasource_loading = v_bronze_exploit_dest[v_table_name]
                 v_bronze_builder = BronzeDbManager.bronzefactory.create_instance(v_datasource_loading.type, v_datasource_loading, v_bronze_config_dest, p_bronze_db_manager_dest, v_bronze_logger_dest)
+
+                '''Get Date_Lastupdated from Exploir Source row'''
+                ''' to update destination Exploit with same value : updated by BronzeGenerator.generate_by_cloning_parquets'''
+                v_exploit_src_row = v_bronze_exploit_src[p_table_name]
+                v_date_lastupdate = v_exploit_src_row['last_update']
+                v_bronze_builder.set_bronze_date_lastupdate(v_date_lastupdate)
+
                 ''' Create Generator to build destination bronze table based'''
                 v_bronze_plant_dest = BronzeGenerator(v_bronze_builder, v_bronze_exploit_dest, v_bronze_logger_dest)
                 ''' 
@@ -1909,6 +1917,11 @@ class BronzeSourceBuilder:
            format list : [{"file_name":parquet_file_name1,"source_file":parquet_file_name1},{"file_name":parquet_file_name2,"source_file":parquet_file_name2},...]
         '''
         self.parquet_file_list = [{"file_name":parquet_file_name,"source_file":parquet_file_name} for parquet_file_name in p_parquet_list]
+
+    def set_bronze_date_lastupdate(self,p_bronze_date_lastupdate):
+        ''' Set Date_lastupdated '''
+        ''' Could be used when cloning bronze table'''
+        self.bronze_date_lastupdated_row =p_bronze_date_lastupdate
 
     def __set_local_workgingdir__(self, path):
         '''Create a temporary directory if it doesn't exist'''
