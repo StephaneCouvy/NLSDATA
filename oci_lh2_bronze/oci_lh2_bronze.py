@@ -1382,7 +1382,7 @@ class BronzeDbManager:
                 '''Get Date_Lastupdated from Exploir Source row'''
                 ''' to update destination Exploit with same value : updated by BronzeGenerator.generate_by_cloning_parquets'''
                 v_exploit_src_row = v_bronze_exploit_src[p_table_name]
-                v_date_lastupdate = v_exploit_src_row['last_update']
+                v_date_lastupdate = v_exploit_src_row.last_update
                 v_bronze_builder.set_bronze_date_lastupdate(v_date_lastupdate)
 
                 ''' Create Generator to build destination bronze table based'''
@@ -1997,7 +1997,7 @@ class BronzeSourceBuilder:
             #bucket = FILESTORAGEFACTORY.create_instance(self.get_bronze_bucket_settings().filestorage_wrapper,**self.get_bronze_bucket_settings()._asdict())
             
             v_bucket = self.bronze_bucket_proxy.get_bucket()
-            v_what_to_search = self.bucket_file_path + self.parquet_file_name_template
+            v_what_to_search = self.get_bronze_properties().bucket_filepath + self.parquet_file_name_template
             v_filter_bucket_func = build_fnmatch_filter('*{}*'.format(v_what_to_search))
             v_list_buckets_files = [obj.name for obj in v_bucket.list_objects(v_filter_bucket_func)]
             
@@ -2190,16 +2190,16 @@ class BronzeSourceBuilder:
             # Create external part table parsing parquet files from bucket root (for incremental mode)
             if self.isexternalpartionedtable():
                 # Create external part table parsing parquet files from bucket root (for incremental mode)
-                root_path = self.bucket_file_path.split("/")[0]+"/"
-                create = 'BEGIN DBMS_CLOUD.CREATE_EXTERNAL_PART_TABLE(table_name =>\'' + vTable + '\',credential_name =>\'' + self.bronze_bucket_proxy.get_oci_adw_credential() + '\', file_uri_list =>\'' + self.bronze_bucket_proxy.get_oci_objectstorage_url() + self.bronze_bucket_proxy.get_bucket_name() + '/o/'+root_path+'*' + self.parquet_file_name_template + '*.parquet\', format => \'{"type":"parquet", "schema": "first","partition_columns":[{"name":"fetch_year","type":"varchar2(100)"},{"name":"fetch_month","type":"varchar2(100)"},{"name":"fetch_day","type":"varchar2(100)"}]}\'); END;'
+                root_path = self.get_bronze_properties().bucket_filepath.split("/")[0]+"/"
+                create = 'BEGIN DBMS_CLOUD.CREATE_EXTERNAL_PART_TABLE(table_name =>\'' + vTable + '\',credential_name =>\'' + self.bronze_bucket_proxy.get_oci_adw_credential() + '\', file_uri_list =>\'' + self.bronze_bucket_proxy.get_oci_objectstorage_url() + self.get_bronze_properties().bucket + '/o/'+root_path+'*' + self.get_bronze_properties().parquet_template + '*.parquet\', format => \'{"type":"parquet", "schema": "first","partition_columns":[{"name":"fetch_year","type":"varchar2(100)"},{"name":"fetch_month","type":"varchar2(100)"},{"name":"fetch_day","type":"varchar2(100)"}]}\'); END;'
                 
                 # create += 'EXECUTE IMMEDIATE '+ '\'CREATE INDEX fetch_date ON ' + table + '(fetch_year,fetch_month,fetch_date)\'; END;'
                 # Not supported for external table
         
             else:
                 # Create external table linked to ONE parquet file (for non incremental mode)
-                root_path = self.bucket_file_path
-                create = 'BEGIN DBMS_CLOUD.CREATE_EXTERNAL_TABLE(table_name =>\'' + vTable + '\',credential_name =>\'' + self.bronze_bucket_proxy.get_oci_adw_credential() + '\', file_uri_list =>\'' + self.bronze_bucket_proxy.get_oci_objectstorage_url() + self.bronze_bucket_proxy.get_bucket_name() + '/o/' + root_path + self.parquet_file_name_template + '.parquet\', format => \'{"type":"parquet", "schema": "first"}\'); END;'
+                root_path = self.get_bronze_properties().bucket_filepath
+                create = 'BEGIN DBMS_CLOUD.CREATE_EXTERNAL_TABLE(table_name =>\'' + vTable + '\',credential_name =>\'' + self.bronze_bucket_proxy.get_oci_adw_credential() + '\', file_uri_list =>\'' + self.bronze_bucket_proxy.get_oci_objectstorage_url() + self.get_bronze_properties().bucket + '/o/' + root_path + self.get_bronze_properties().parquet_template + '.parquet\', format => \'{"type":"parquet", "schema": "first"}\'); END;'
             
             if p_verbose:
                 message = "Creating table {} : {}".format(vTable,create)
@@ -2299,7 +2299,7 @@ class BronzeSourceBuilder:
         try:    
             for p in self.parquet_file_list_tosend:
                 # Sending parquet files
-                bucket_file_name = self.bucket_file_path +  p["file_name"]
+                bucket_file_name = self.get_bronze_properties().bucket_filepath +  p["file_name"]
                 source_file = p["source_file"]
 
                 message = "Uploading parquet from {0} into bucket {1}, {2}".format(source_file, self.bronze_bucket_proxy.get_bucket_name(), bucket_file_name)
