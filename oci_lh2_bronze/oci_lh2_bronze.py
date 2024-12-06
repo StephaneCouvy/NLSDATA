@@ -1920,7 +1920,7 @@ class BronzeSourceBuilder:
             self.parquet_file_list = [{"file_name":parquet_file_name,"source_file":parquet_file_name} for parquet_file_name in p_parquet_list]
 
             ''' Define Bucket file path according last parquet file of list'''
-            self.bucket_file_path = self.parquet_file_list[-1].rsplit('/', 1)[0]+'/'
+            self.bucket_file_path = p_parquet_list[-1].rsplit('/', 1)[0]+'/'
 
     def set_bronze_date_lastupdate(self,p_bronze_date_lastupdate):
         ''' Set Date_lastupdated '''
