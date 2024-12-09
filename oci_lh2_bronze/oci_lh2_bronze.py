@@ -147,16 +147,16 @@ class BronzeConfig():
 class BronzeLogger():
     '''BronzeLogger method'''
 
-    def __init__(self, pBronze_config, p_verbose=None):
+    def __init__(self, p_bronze_config:BronzeConfig, p_verbose=None):
         '''BronzeLogger constructor'''
 
         self.logger_linked_bronze_source = None
-        self.logger_linked_bronze_config = pBronze_config
+        self.logger_linked_bronze_config = p_bronze_config
         self.verbose = p_verbose
         self.logger_oracledb_connection = None
         
         if self.logger_linked_bronze_config:
-            self.logger_env = pBronze_config.get_options().environment
+            self.logger_env = p_bronze_config.get_options().environment
             self.logger_table_name = self.logger_linked_bronze_config.get_options().log_table_prefix + self.logger_linked_bronze_config.get_options().environment
         
         self._init_logger()
@@ -195,11 +195,11 @@ class BronzeLogger():
         return self.logger_oracledb_connection
 
 
-    def link_to_bronze_source(self, pBronze_source):
+    def link_to_bronze_source(self, p_bronze_source):
         '''Link to bronze source method'''
 
-        self.logger_linked_bronze_source:BronzeSourceBuilder = pBronze_source
-        self.logger_linked_bronze_config:BronzeConfig = pBronze_source.get_bronze_config()
+        self.logger_linked_bronze_source:BronzeSourceBuilder = p_bronze_source
+        self.logger_linked_bronze_config:BronzeConfig = p_bronze_source.get_bronze_config()
         self.logger_env = self.logger_linked_bronze_source.get_bronze_properties().environment
         vSourceProperties = self.logger_linked_bronze_source.get_bronze_source_properties()
         self._init_logger()
@@ -210,20 +210,23 @@ class BronzeLogger():
         '''Set logger properties method'''
         self.instance_bronzeloggerproperties = self.instance_bronzeloggerproperties._replace(SRC_NAME=p_src_name, SRC_ORIGIN_NAME=p_src_origin_name, SRC_OBJECT_NAME=p_src_object_name, REQUEST=p_request, STAT_TOTAL_DURATION=p_duration)
 
+    def set_log_table(self,p_log_table:str):
+        self.logger_table_name = p_log_table
+        self._init_logger()
 
     def get_log_table(self):
         '''Get log table method'''
         return self.logger_table_name
 
 
-    def log(self,pAction="COMPLETED", pError=None):
+    def log(self, p_action="COMPLETED", p_error=None):
         '''Log method'''
 
-        v_action = pAction
+        v_action = p_action
         
-        if pError:
-            v_error_type = type(pError).__name__
-            v_error_message = str(pError)
+        if p_error:
+            v_error_type = type(p_error).__name__
+            v_error_message = str(p_error)
             
             # If error message contains warning then change action -> WARNING
             if re.match("WARNING",v_error_message.upper()):
@@ -522,7 +525,7 @@ class BronzeExploit:
             if self.verbose:
                 self.verbose.log(datetime.now(tz=timezone.utc), "UPDATE_EXPLOIT", v_error, log_message='Oracle DB error : {}'.format(str(v_err)))
             
-            self.logger.log(pError=v_err, pAction=v_error)
+            self.logger.log(p_error=v_err, p_action=v_error)
     
             return False
         
@@ -533,7 +536,7 @@ class BronzeExploit:
             if self.verbose:
                 self.verbose.log(datetime.now(tz=timezone.utc), "UPDATE_EXPLOIT", v_error, str(v_err))
             
-            self.logger.log(pError=v_err, pAction=v_error)
+            self.logger.log(p_error=v_err, p_action=v_error)
     
             return False
 
@@ -556,15 +559,15 @@ class BronzeDbManager:
     '''
     bronzefactory = None
 
-    def __init__(self, pBronze_config:BronzeConfig, pLogger:BronzeLogger,p_bronze_exploit:BronzeExploit=None):
+    def __init__(self, p_bronze_config:BronzeConfig, p_logger:BronzeLogger, p_bronze_exploit:BronzeExploit=None):
         '''Bronze DB manager constructor'''
     
-        self.bronzeDb_Manager_config = pBronze_config
+        self.bronzeDb_Manager_config = p_bronze_config
         self.bronzeDbManager_env = self.bronzeDb_Manager_config.get_options().environment
         
         # Bronze Database name - defined into config.json file
         self.bronzeDb_Manager_database_name = "BRONZE_" + self.bronzeDbManager_env
-        self.bronzeDb_Manager_logger = pLogger
+        self.bronzeDb_Manager_logger = p_logger
         
         self.pre_proc = self.bronzeDb_Manager_config.get_options().PLSQL_pre_proc
         
@@ -604,7 +607,10 @@ class BronzeDbManager:
         
         self.lh2_tables_tablename = self.garbage_options.LH2_TABLES_TABLENAME
         self.filestorage_for_excel_export = self.garbage_options.filestorage_for_excel_export
-    
+
+        v_garbage_log_table = self.garbage_options.log_table_prefix + self.get_environment()
+        self.get_bronze_logger().set_log_table(v_garbage_log_table)
+
     def set_bronze_exploit(self,p_bronze_exploit:BronzeExploit):
         ''' Set Bronze Exploit asscociated to BronzeDbManager object'''
         self.bronze_exploit = p_bronze_exploit
@@ -724,7 +730,7 @@ class BronzeDbManager:
                 if p_verbose:
                     p_verbose.log(datetime.now(tz=timezone.utc), "BRONZE_PROC", v_action, log_message=v_log_message)
                 
-                self.bronzeDb_Manager_logger.log(pError=v_err, pAction=v_action)
+                self.bronzeDb_Manager_logger.log(p_error=v_err, p_action=v_action)
     
             return v_return
 
@@ -955,7 +961,7 @@ class BronzeDbManager:
                 if p_verbose:
                     p_verbose.log(datetime.now(tz=timezone.utc), "GATHER_BRONZE_STATS", v_action, log_message=v_log_message)
     
-                self.bronzeDb_Manager_logger.log(pError=v_err, pAction=v_action)
+                self.bronzeDb_Manager_logger.log(p_error=v_err, p_action=v_action)
 
             return v_return
     
@@ -1018,7 +1024,7 @@ class BronzeDbManager:
             if self.get_db():
                 if p_verbose:
                     p_verbose.log(datetime.now(tz=timezone.utc), "UPDATE_TABLE_BRONZE_STATS", v_action, log_message=v_log_message)
-                self.bronzeDb_Manager_logger.log(pError=v_err, pAction=v_action)
+                self.bronzeDb_Manager_logger.log(p_error=v_err, p_action=v_action)
 
             return v_return
         
@@ -1089,7 +1095,7 @@ class BronzeDbManager:
                 if p_verbose:
                     p_verbose.log(datetime.now(tz=timezone.utc), "EXPORT_BRONZE_STATS", v_action, log_message=v_log_message)
     
-                self.bronzeDb_Manager_logger.log(pError=v_err, pAction=v_action)
+                self.bronzeDb_Manager_logger.log(p_error=v_err, p_action=v_action)
 
             return v_return
         
@@ -1138,7 +1144,7 @@ class BronzeDbManager:
                 if p_verbose:
                     p_verbose.log(datetime.now(tz=timezone.utc), "DELETE_PARQUETS", v_action, log_message=v_log_message)
 
-                self.bronzeDb_Manager_logger.log(pError=v_err, pAction=v_action)
+                self.bronzeDb_Manager_logger.log(p_error=v_err, p_action=v_action)
 
             return v_return
 
@@ -1194,7 +1200,7 @@ class BronzeDbManager:
                 if p_verbose:
                     p_verbose.log(datetime.now(tz=timezone.utc), "GARBAGE_COLLECTOR", v_action, log_message=v_log_message)
                 
-                self.bronzeDb_Manager_logger.log(pError=v_err, pAction=v_action)
+                self.bronzeDb_Manager_logger.log(p_error=v_err, p_action=v_action)
     
             return v_return
 
@@ -1313,7 +1319,7 @@ class BronzeDbManager:
                 if p_verbose:
                     p_verbose.log(datetime.now(tz=timezone.utc), "DROP_EXTERNAL_TABLE", v_action,
                                   log_message=v_log_message)
-                self.bronzeDb_Manager_logger.log(pError=v_err, pAction=v_action)
+                self.bronzeDb_Manager_logger.log(p_error=v_err, p_action=v_action)
 
             return v_return
 
@@ -1432,7 +1438,7 @@ class BronzeDbManager:
                 if p_verbose:
                     p_verbose.log(datetime.now(tz=timezone.utc), "CLONE_EXTERANL_TABLE", v_action,
                                   log_message=v_log_message)
-                self.bronzeDb_Manager_logger.log(pError=v_err, pAction=v_action)
+                self.bronzeDb_Manager_logger.log(p_error=v_err, p_action=v_action)
 
             return v_return
 
@@ -1524,7 +1530,7 @@ class BronzeDbManager:
             if self.get_db():
                 if p_verbose:
                     p_verbose.log(datetime.now(tz=timezone.utc), "DROP_TABLES_QUERY", v_action, log_message=v_log_message)
-                self.bronzeDb_Manager_logger.log(pError=v_err, pAction=v_action)
+                self.bronzeDb_Manager_logger.log(p_error=v_err, p_action=v_action)
 
             return v_return
 
@@ -1593,7 +1599,7 @@ class BronzeDbManager:
                 if p_verbose:
                     p_verbose.log(datetime.now(tz=timezone.utc), "DROP_TABLES_QUERY", v_action,
                                   log_message=v_log_message)
-                self.bronzeDb_Manager_logger.log(pError=v_err, pAction=v_action)
+                self.bronzeDb_Manager_logger.log(p_error=v_err, p_action=v_action)
 
             return v_return
 
@@ -2087,7 +2093,7 @@ class BronzeSourceBuilder:
             
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "CREATE_PARQUET", vError,log_message='OS Error : '.format(str(err)))
-            self.logger.log(pError=err, pAction=vError)
+            self.logger.log(p_error=err, p_action=vError)
             
             return False
 
@@ -2096,7 +2102,7 @@ class BronzeSourceBuilder:
             
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "CREATE_PARQUET", vError, log_message=str(err))
-            self.logger.log(pError=err, pAction=vError)
+            self.logger.log(p_error=err, p_action=vError)
             
             # Continue can only be used within a loop, so we use pass instead
 
@@ -2154,7 +2160,7 @@ class BronzeSourceBuilder:
             
             if p_verbose:
                 p_verbose.log(datetime.now(tz=timezone.utc), "SYNC_TABLE", vError, log_message='Oracle DB error :{}'.format(str(err)))
-            self.logger.log(pError=err, pAction=vError)
+            self.logger.log(p_error=err, p_action=vError)
             
             return False
 
@@ -2163,7 +2169,7 @@ class BronzeSourceBuilder:
             
             if p_verbose:
                 p_verbose.log(datetime.now(tz=timezone.utc), "SYNC_TABLE", vError, log_message=str(err))
-            self.logger.log(pError=err, pAction=vError)
+            self.logger.log(p_error=err, p_action=vError)
             
             return False
 
@@ -2235,7 +2241,7 @@ class BronzeSourceBuilder:
             if p_verbose:
                 p_verbose.log(datetime.now(tz=timezone.utc), "CREATE_TABLE", vError, log_message='Oracle DB error : {}'.format(str(err)))
             
-            self.logger.log(pError=err, pAction=vError)
+            self.logger.log(p_error=err, p_action=vError)
             
             return False
     
@@ -2245,7 +2251,7 @@ class BronzeSourceBuilder:
             if p_verbose:
                 p_verbose.log(datetime.now(tz=timezone.utc), "CREATE_TABLE", vError, log_message=str(err))
             
-            self.logger.log(pError=err, pAction=vError)
+            self.logger.log(p_error=err, p_action=vError)
             
             return False
 
@@ -2262,7 +2268,7 @@ class BronzeSourceBuilder:
             if p_verbose:
                 p_verbose.log(datetime.now(tz=timezone.utc), "UPLOAD_PARQUET", vError, log_message="")
            
-            self.logger.log(pError=Exception(vError), pAction=vError)
+            self.logger.log(p_error=Exception(vError), p_action=vError)
             self.set_bronze_status('parquet_sent')
             
             return True
@@ -2298,7 +2304,7 @@ class BronzeSourceBuilder:
             if p_verbose:
                 p_verbose.log(datetime.now(tz=timezone.utc), "BUCKET_ACCESS", vError, log_message=str(err))
             
-            self.logger.log(pError=err, pAction=vError)
+            self.logger.log(p_error=err, p_action=vError)
             
             return False
         
@@ -2324,7 +2330,7 @@ class BronzeSourceBuilder:
             if p_verbose:
                 p_verbose.log(datetime.now(tz=timezone.utc), "UPLOAD_PARQUET", vError, log_message=str(err))
             
-            self.logger.log(pError=err, pAction=vError)
+            self.logger.log(p_error=err, p_action=vError)
             
             return False
 
@@ -2345,7 +2351,7 @@ class BronzeSourceBuilder:
             if p_verbose:
                 p_verbose.log(datetime.now(tz=timezone.utc), "UPLOAD_PARQUET", vError, log_message="")
 
-            self.logger.log(pError=Exception(vError), pAction=vError)
+            self.logger.log(p_error=Exception(vError), p_action=vError)
             self.set_bronze_status('parquet_sent')
 
             return True
@@ -2358,7 +2364,7 @@ class BronzeSourceBuilder:
             vError = "ERROR create access to bucket {0}".format(self.bronze_bucket_proxy.get_bucket_name())
             if p_verbose:
                 p_verbose.log(datetime.now(tz=timezone.utc), "BUCKET_ACCESS", vError, log_message=str(err))
-            self.logger.log(pError=err, pAction=vError)
+            self.logger.log(p_error=err, p_action=vError)
             return False
 
         self.parquet_file_list_tosend = self.parquet_file_list
@@ -2383,7 +2389,7 @@ class BronzeSourceBuilder:
             if p_verbose:
                 p_verbose.log(datetime.now(tz=timezone.utc), "COPY_PARQUET", vError, log_message=str(err))
 
-            self.logger.log(pError=err, pAction=vError)
+            self.logger.log(p_error=err, p_action=vError)
 
             return False
 
@@ -2429,7 +2435,7 @@ class BronzeSourceBuilder:
             
             if p_verbose:
                 p_verbose.log(datetime.now(tz=timezone.utc), "UPDATE_BRONZE_SCHEMA", vError, log_message=str(err))
-            self.logger.log(pError=err, pAction=vError)
+            self.logger.log(p_error=err, p_action=vError)
             
             return False
 

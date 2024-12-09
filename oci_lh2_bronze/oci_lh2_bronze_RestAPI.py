@@ -211,7 +211,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "FETCH", vError, log_message=str(err),
                             log_request=self.request)
-            self.logger.log(pError=err, pAction=vError)
+            self.logger.log(p_error=err, p_action=vError)
             self.__update_fetch_row_stats__()
             return False
         except oracledb.Error as err:
@@ -219,7 +219,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "FETCH", vError,
                             log_message='Oracle DB error: ' + str(err), log_request=self.request)
-            self.logger.log(pError=err, pAction=vError)
+            self.logger.log(p_error=err, p_action=vError)
             self.__update_fetch_row_stats__()
             return False
         except Exception as err:
@@ -227,6 +227,6 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "FETCH", vError, log_message=str(err),
                             log_request=self.request)
-            self.logger.log(pError=err, pAction=vError)
+            self.logger.log(p_error=err, p_action=vError)
             self.__update_fetch_row_stats__()
             return False
