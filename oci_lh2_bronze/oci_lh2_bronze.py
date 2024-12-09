@@ -1,4 +1,6 @@
 import os.path
+import time
+
 import oracledb
 import pandas as pd
 from nlsdata.nlsdata_utils import *
@@ -2387,7 +2389,8 @@ class BronzeSourceBuilder:
 
         self.__update_copied_parquets_stats()
         self.set_bronze_status('parquets_copied')
-
+        ''' Wait for parquet files copies , validated on OCI Cloud'''
+        time.sleep(2)
         return True
 
     def update_bronze_schema(self, p_simulate=False,p_verbose=None):
