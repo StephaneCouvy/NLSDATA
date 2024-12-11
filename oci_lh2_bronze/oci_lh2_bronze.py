@@ -279,7 +279,7 @@ class BronzeExploit:
         self.verbose = p_verbose
         self.logger = p_logger
         self.exploit_config = p_bronze_config
-        self.exploit_db_param = get_parser_config_settings("database")(self.exploit_config.get_configuration_file(),"exploit")
+        self.exploit_db_param = get_parser_config_settings("database")(self.exploit_config.get_configuration_file(),self.exploit_config.get_options().logger_db)
         self.exploit_db:absdb = DBFACTORY.create_instance(self.exploit_db_param.dbwrapper, self.exploit_config.get_configuration_file())
         self.exploit_db_connection = self.exploit_db.create_db_connection(self.exploit_db_param)
 
