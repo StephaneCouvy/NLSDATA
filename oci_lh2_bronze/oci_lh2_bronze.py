@@ -1276,6 +1276,7 @@ class BronzeDbManager:
                     set BRONZE_LASTUPLOADED_PARQUET to null,
                     set SRC_DATE_LASTUPDATE to RESET_DATE_LASTUPDATE for Incremental table (Partitioned table)
                     set bronze_status = DROPPED
+                    set bronze_bis_status = DROPPPED
                     '''
                     v_dict_update_exploit = dict()
                     v_dict_update_exploit['bronze_lastuploaded_parquet'] = None
@@ -1284,6 +1285,8 @@ class BronzeDbManager:
                     v_dict_update_exploit['last_update'] = v_reset_date_lastupdate
                     v_dict_update_exploit['bronze_status'] = DICT_STATUS_CODE['dropped']
                     v_dict_update_exploit['bronze_update'] = datetime.now(tz=timezone.utc)
+                    v_dict_update_exploit['bronze_bis_status'] = DICT_STATUS_CODE['dropped']
+                    v_dict_update_exploit['bronze__bis_update'] = datetime.now(tz=timezone.utc)
 
                     if p_verbose:
                         v_log_message = "Update Exploit loading table {} , reset {} - Simulate = {}".format(
