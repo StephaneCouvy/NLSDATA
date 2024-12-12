@@ -1286,7 +1286,7 @@ class BronzeDbManager:
                     v_dict_update_exploit['bronze_status'] = DICT_STATUS_CODE['dropped']
                     v_dict_update_exploit['bronze_update'] = datetime.now(tz=timezone.utc)
                     v_dict_update_exploit['bronze_bis_status'] = DICT_STATUS_CODE['dropped']
-                    v_dict_update_exploit['bronze__bis_update'] = datetime.now(tz=timezone.utc)
+                    v_dict_update_exploit['bronze_bis_update'] = datetime.now(tz=timezone.utc)
 
                     if p_verbose:
                         v_log_message = "Update Exploit loading table {} , reset {} - Simulate = {}".format(
