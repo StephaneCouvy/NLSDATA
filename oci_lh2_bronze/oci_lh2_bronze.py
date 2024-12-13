@@ -863,6 +863,13 @@ class BronzeDbManager:
                     p_verbose.log(datetime.now(tz=timezone.utc), "GATHER_BRONZE_STATS","RUNNING", log_message=v_log_message)
             
             v_cursor.execute(v_sql)
+            if v_cursor.rowcount == 0:
+                v_log_message = "COMPLETED - No Bronze tables"
+                v_action = "COMPLETED"
+                v_err = None
+                v_return = True
+                return True
+
             v_df_lh2_tables = pd.DataFrame(v_cursor.fetchall())
             v_df_lh2_tables.columns = [x[0] for x in v_cursor.description]
             v_cursor.close()
