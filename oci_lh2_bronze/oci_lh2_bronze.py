@@ -875,24 +875,33 @@ class BronzeDbManager:
             v_df_lh2_tables.columns = [x[0] for x in v_cursor.description]
             v_cursor.close()
 
-            if p_count_rows:
-                '''Count rows for each tables'''
-
-
-                v_message = "Count rows for  list of external tables of bronze layer {}".format(self.bronzeDbManager_env)
-                if p_verbose:
-                    p_verbose.log(datetime.now(tz=timezone.utc),"GATHER_BRONZE_STATS","RUNNING",log_message=v_message)
-
-                for v_index, v_row in v_df_lh2_tables.iterrows():
-                    v_table_data = v_row.to_dict()
-                    v_table_name = v_table_data['TABLE_NAME']
+            ''' 
+            Update LH2 bronze information : 
+                - Count rows for each tables if has been specified
+                - Get Flag_Attribute1 from Exploit LH2_DATASOURCE_LOADING table
+            '''
+            for v_index, v_row in v_df_lh2_tables.iterrows():
+                v_table_data = v_row.to_dict()
+                v_table_name = v_table_data['TABLE_NAME']
+                if p_count_rows:
+                    '''Count rows for each tables'''
+                    v_message = "On Bronze layer {0}, Count rows for external tables {1}".format(self.bronzeDbManager_env,v_table_name)
+                    if p_verbose:
+                        p_verbose.log(datetime.now(tz=timezone.utc),"GATHER_BRONZE_STATS","RUNNING",log_message=v_message)
                     v_num_rows = self.get_db().get_num_rows(v_table_name)
-
-                    #v_num_rows = 0
-
                     v_df_lh2_tables.at[v_index,'NUM_ROWS'] = v_num_rows
-                '''end of count rows'''
-
+                    '''end of count rows'''
+                ''' Get Flage_Attributes1 from Exploit LH2_DATASOURCE_LOADING table'''
+                try:
+                    v_row_exploit = self.get_bronze_exploit()[v_table_name]
+                    v_flag_attribute1 = v_row_exploit.FLAG_ATTRIBUTE1
+                    v_message = "On Bronze layer {0}, for external tables {1}, Flag_Attribute1 = {2}".format(self.bronzeDbManager_env,v_table_name,v_flag_attribute1)
+                    if p_verbose:
+                        p_verbose.log(datetime.now(tz=timezone.utc), "GATHER_BRONZE_STATS", "RUNNING",
+                                      log_message=v_message)
+                    v_df_lh2_tables.at[v_index, 'FLAG_ATTRIBUTE1'] = v_flag_attribute1
+                except Exception as err:
+                    continue
             '''
                 Get buckets used for bronze layers
                 Get distinct bucket names from the column
@@ -1001,8 +1010,8 @@ class BronzeDbManager:
             
             for v_index, v_row in v_filtered_df_lh2_bronze_tables.iterrows():
                 v_rown_list_parquets = list_to_string(v_row['LIST_PARQUETS'])
-                v_sql = "UPDATE " + self.lh2_tables_tablename + " SET NUM_ROWS = :1, SIZE_MB = :2, NUM_PARQUETS = :3, LIST_PARQUETS = :4 WHERE OWNER = :5 AND TABLE_NAME = :6"
-                v_bindvars = (int(v_row['NUM_ROWS'] or 0), int(v_row['SIZE_MB'] or 0), int(v_row['NUM_PARQUETS'] or 0), v_rown_list_parquets, v_row['OWNER'], v_row['TABLE_NAME'])
+                v_sql = "UPDATE " + self.lh2_tables_tablename + " SET NUM_ROWS = :3, SIZE_MB = :4, NUM_PARQUETS = :5, LIST_PARQUETS = :6, FLAG_ATTRIBUTE1 = :7 WHERE OWNER = :1 AND TABLE_NAME = :2"
+                v_bindvars = (v_row['OWNER'], v_row['TABLE_NAME'],int(v_row['NUM_ROWS'] or 0), int(v_row['SIZE_MB'] or 0), int(v_row['NUM_PARQUETS'] or 0), v_rown_list_parquets,int(v_row['FLAG_ATTRIBUTE1'] or 0))
                 
                 # v_log_message = "Updating {0}.{1}, num_rows {2}, size_mb {3}, num_parquets {4}\n Request : {5}".format(v_row['OWNER'], v_row['TABLE_NAME'], int(v_row['NUM_ROWS'] or 0), int(v_row['SIZE_MB'] or 0), int(v_row['NUM_PARQUETS'] or 0),v_sql)
                 
@@ -1235,7 +1244,7 @@ class BronzeDbManager:
             if p_verbose:
                 p_verbose.log(datetime.now(tz=timezone.utc), "DROP_TABLE", "START", log_message=v_log_message)
 
-            if not self.bronze_exploit:
+            if not self.get_bronze_exploit():
                 raise Exception("Exploit object not associated to BronzeDbManager Object")
 
             # Test if table exists
@@ -1288,7 +1297,7 @@ class BronzeDbManager:
                     '''
                     v_dict_update_exploit = dict()
                     v_dict_update_exploit['bronze_lastuploaded_parquet'] = None
-                    v_row_exploit = self.bronze_exploit[v_table_name]
+                    v_row_exploit = self.get_bronze_exploit()[v_table_name]
                     v_reset_date_lastupdate = v_row_exploit.reset_lastupdate
                     v_dict_update_exploit['last_update'] = v_reset_date_lastupdate
                     v_dict_update_exploit['bronze_status'] = DICT_STATUS_CODE['dropped']
@@ -1303,7 +1312,7 @@ class BronzeDbManager:
                                       log_message=v_log_message)
 
                     if not p_simulate:
-                        if not self.bronze_exploit.update_exploit(v_dict_update_exploit, p_bronze_table_name=v_table_name):
+                        if not self.get_bronze_exploit().update_exploit(v_dict_update_exploit, p_bronze_table_name=v_table_name):
                             raise Exception(
                                 "ERROR - Update Exploit table {} : {}".format(v_table_name, v_dict_update_exploit))
 
@@ -1350,7 +1359,7 @@ class BronzeDbManager:
             return False
 
         try:
-            v_log_message = "Starting {} - Simulate : {}".format(v_request, str(p_simulate))
+            v_log_message = "Starting {} - Simulate status : {}".format(v_request, str(p_simulate))
 
             if p_verbose:
                 p_verbose.log(datetime.now(tz=timezone.utc), "CLONE_TABLE", "START", log_message=v_log_message)
@@ -1494,7 +1503,7 @@ class BronzeDbManager:
             if p_verbose:
                 p_verbose.log(datetime.now(tz=timezone.utc), "DROP_TABLES_QUERY", "START", log_message=v_log_message)
 
-            if not self.bronze_exploit:
+            if not self.get_bronze_exploit():
                 raise Exception("Exploit object not associated to BronzeDbManager Object")
 
             v_filtered_df_lh2_bronze_tables = self.__get_df_bronze_tables_by_query__(p_query=p_query,p_verbose=p_verbose)
