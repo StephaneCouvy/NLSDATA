@@ -1007,12 +1007,23 @@ class BronzeDbManager:
             v_cursor = self.get_db_connection().cursor()
             ''' Filtering tables to exclude Zombie_table_name with listf of zombies parquet files'''
             v_filtered_df_lh2_bronze_tables = create_filter_mask(self.get_lh2_bronze_tables_stats(),f'TABLE_NAME != \'{ZOMBIES_TABLE_NAME}\'')
-            
+
+            v_sql = "UPDATE " + self.lh2_tables_tablename + " SET NUM_ROWS = :3, SIZE_MB = :4, NUM_PARQUETS = :5, LIST_PARQUETS = :6, FLAG_ATTRIBUTE1 = :7 WHERE OWNER = :1 AND TABLE_NAME = :2"
+
             for v_index, v_row in v_filtered_df_lh2_bronze_tables.iterrows():
-                v_rown_list_parquets = list_to_string(v_row['LIST_PARQUETS'])
-                v_sql = "UPDATE " + self.lh2_tables_tablename + " SET NUM_ROWS = :3, SIZE_MB = :4, NUM_PARQUETS = :5, LIST_PARQUETS = :6, FLAG_ATTRIBUTE1 = :7 WHERE OWNER = :1 AND TABLE_NAME = :2"
-                v_bindvars = (v_row['OWNER'], v_row['TABLE_NAME'],int(v_row['NUM_ROWS'] or 0), int(v_row['SIZE_MB'] or 0), int(v_row['NUM_PARQUETS'] or 0), v_rown_list_parquets,int(v_row['FLAG_ATTRIBUTE1'] or 0))
-                
+                v_row_list_parquets = list_to_string(v_row['LIST_PARQUETS'])
+                v_bindvars = {
+                    '1': v_row['OWNER'],
+                    '2': v_row['TABLE_NAME'],
+                    '3': int(v_row['NUM_ROWS'] or 0),
+                    '4': int(v_row['SIZE_MB'] or 0),
+                    '5': int(v_row['NUM_PARQUETS'] or 0),
+                    '6': v_row_list_parquets,
+                    '7': int(v_row['FLAG_ATTRIBUTE1'] or 0)
+                }
+                # Convertir la chaîne de caractères en CLOB
+                v_bindvars['6'] = v_cursor.var(oracledb.DB_TYPE_CLOB).setvalue(0, v_bindvars['6'])
+
                 # v_log_message = "Updating {0}.{1}, num_rows {2}, size_mb {3}, num_parquets {4}\n Request : {5}".format(v_row['OWNER'], v_row['TABLE_NAME'], int(v_row['NUM_ROWS'] or 0), int(v_row['SIZE_MB'] or 0), int(v_row['NUM_PARQUETS'] or 0),v_sql)
                 
                 # if p_verbose:
