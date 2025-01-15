@@ -1,9 +1,9 @@
 import os.path
 import time
+from ipaddress import v6_int_to_packed
 
 import oracledb
 import pandas as pd
-from nlsdata.nlsdata_utils import *
 from nlsdb.dbwrapper_factory import *
 from nlsfilestorage.filestorage_wrapper.abs_filestorage import *
 from nlsfilestorage.filestorage_wrapper_factory import *
@@ -61,7 +61,7 @@ class BronzeConfig():
         self.options = get_parser_config_settings("options")(self.configuration_file, "options")
         
         self.duckdb_settings = get_parser_config_settings("duckdb_settings")(self.configuration_file, "duckdb_settings")
-        
+
         if self.options.db_arraysize.isdigit():
             global DB_ARRAYSIZE
             DB_ARRAYSIZE = eval(self.options.db_arraysize)
@@ -1022,8 +1022,9 @@ class BronzeDbManager:
                     '7': int(v_row['FLAG_ATTRIBUTE1'] or 0)
                 }
                 # Convertir la chaîne de caractères en CLOB
-                v_bindvars['6'] = v_cursor.var(oracledb.DB_TYPE_CLOB).setvalue(0, v_bindvars['6'])
-
+                v_6= v_cursor.var(oracledb.DB_TYPE_CLOB)
+                v_6.setvalue(0, v_bindvars['6'])
+                v_bindvars['6'] = v_6
                 # v_log_message = "Updating {0}.{1}, num_rows {2}, size_mb {3}, num_parquets {4}\n Request : {5}".format(v_row['OWNER'], v_row['TABLE_NAME'], int(v_row['NUM_ROWS'] or 0), int(v_row['SIZE_MB'] or 0), int(v_row['NUM_PARQUETS'] or 0),v_sql)
                 
                 # if p_verbose:
